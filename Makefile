@@ -67,7 +67,7 @@ SRCS = $(wildcard *.cpp) $(wildcard $(CPX_DIR)/*.cpp)
 OBJS = $(SRCS:.cpp=.o)
 
 # define the executable file
-MAIN = demo_atomix.bin
+MAIN = bin/demo_atomix.bin
 
 #
 # The following part of the makefile is generic; it can be used to
