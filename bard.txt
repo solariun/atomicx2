@@ -1,0 +1,188 @@
+I need fully-featured code and ready to build, of a generic class, totally written in c++11 with no stl api, only c++ language, that will be called StaticList that if derived, 
+on the derived class construction, it is added to a double-liked list implemented only using c++11 language and on derived destruction,
+ it is removed from this list. It is also important that at any point, we can use a native foreach loop (range-based for loop). 
+
+
+c++// Node for the doubly linked list.
+struct Node {
+    Node* prev;
+    Node* next;
+    // Pointer to the derived class object.
+    void* data;
+};
+
+// Generic static list class.
+template <typename T>
+class StaticList {
+private:
+    // Head and tail nodes of the doubly linked list.
+    Node* head;
+    Node* tail;
+
+public:
+    // Constructor.
+    StaticList() : head(nullptr), tail(nullptr) {}
+
+    // Destructor.
+    ~StaticList() {
+        // Remove all nodes from the list.
+        while (head) {
+            Node* next = head->next;
+            delete head;
+            head = next;
+        }
+    }
+
+    // Add a new node to the list.
+    void add(T* object) {
+        // Create a new node.
+        Node* node = new Node;
+        node->data = object;
+
+        // Add the node to the end of the list.
+        if (tail) {
+            tail->next = node;
+            node->prev = tail;
+            tail = node;
+        } else {
+            head = tail = node;
+        }
+    }
+
+    // Remove a node from the list.
+    void remove(T* object) {
+        // Find the node to be removed.
+        Node* node = head;
+        while (node && node->data != object) {
+            node = node->next;
+        }
+
+        // If the node was found, remove it from the list.
+        if (node) {
+            if (node == head) {
+                head = node->next;
+            } else {
+                node->prev->next = node->next;
+            }
+
+            if (node == tail) {
+                tail = node->prev;
+            } else {
+                node->next->prev = node->prev;
+            }
+
+            delete node;
+        }
+    }
+
+    // Iterate over the list using a range-based for loop.
+    auto begin() { return head; }
+    auto end() { return nullptr; }
+};
+
+// Derived class.
+class MyClass : public StaticList<MyClass> {
+public:
+    // Constructor.
+    MyClass() {
+        // Add the object to the static list.
+        add(this);
+    }
+
+    // Destructor.
+    ~MyClass() {
+        // Remove the object from the static list.
+        remove(this);
+    }
+};
+
+int main() {
+    // Create a static list of MyClass objects.
+    StaticList<MyClass> list;
+
+    // Add some objects to the list.
+    MyClass object1;
+    MyClass object2;
+    MyClass object3;
+    list.add(&object1);
+    list.add(&object2);
+    list.add(&object3);
+
+    // Iterate over the list using a range-based for loop.
+    for (MyClass* object : list) {
+        // Do something with the object.
+        std::cout << object << std::endl;
+    }
+
+    return 0;
+}
+
+
+
+
+
+
+Create a make file that first build atomicx.so from source/*.cpp and after it build all the *.cpp in the application root directory linking atomicx.so against it
+# Makefile for building AtomicX library and application
+
+# Specify the C++ compiler
+CC = g++
+
+# Specify the C++ compiler flags
+CFLAGS = -std=c++17 -Wall -Wextra -O2
+
+# Specify the linker flags
+LDFLAGS = -L./lib
+
+# Define the source files for AtomicX library
+ATOMICX_SRC = source/*.cpp
+
+# Define the source files for the application
+APP_SRC = *.cpp
+
+# Define the name of the AtomicX shared library
+ATOMICX_SO = atomicx.so
+
+# Define the name of the application executable
+APP_EXE = application
+
+# Define the directories
+SRC_DIR = source
+LIB_DIR = lib
+BIN_DIR = bin
+
+# Create the directories if they don't exist
+mkdir -p $(LIB_DIR)
+mkdir -p $(BIN_DIR)
+
+# Build the AtomicX shared library
+$(LIB_DIR)/$(ATOMICX_SO): $(ATOMICX_SRC)
+	$(CC) $(CFLAGS) $(ATOMICX_SRC) -shared -o $@
+
+# Build the application executable
+$(BIN_DIR)/$(APP_EXE): $(APP_SRC) $(LIB_DIR)/$(ATOMICX_SO)
+	$(CC) $(CFLAGS) $(LDFLAGS) $(APP_SRC) -o $@ -latomicx
+
+# Clean the build
+clean:
+	rm -rf $(LIB_DIR)/*
+	rm -rf $(BIN_DIR)/*
+
+# Default target
+all: $(BIN_DIR)/$(APP_EXE)
+
+
+**Explanation:**
+
+1. **Directories:** Three directories are defined: SRC_DIR for source files, LIB_DIR for libraries, and BIN_DIR for executables.
+
+2. **Build AtomicX Library:** The rule for building the AtomicX shared library (atomicx.so) is defined. It specifies the source files (ATOMICX_SRC), compiler flags (CFLAGS), and the output file name ($(LIB_DIR)/$(ATOMICX_SO)).
+
+3. **Build Application Executable:** The rule for building the application executable (application) is defined. It depends on the source files (APP_SRC), the AtomicX shared library ($(LIB_DIR)/$(ATOMICX_SO)), compiler flags (CFLAGS), linker flags (LDFLAGS), and the output file name ($(BIN_DIR)/$(APP_EXE)).
+
+4. **Clean:** The clean target is defined to remove all generated files and directories.
+
+5. **Default Target:** The default target is all, which builds the application executable.
+
+This Makefile adheres to best practices by clearly defining the necessary directories, source files, and commands for building the AtomicX library and the application. It also includes a clean target for removing generated files and directories. The code is well-commented to explain the logic and the steps involved in the build process.
+
