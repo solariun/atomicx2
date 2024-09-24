@@ -8,7 +8,6 @@ void fastBlink(size_t n) {
         digitalWrite(pin, HIGH);
         delay(1); // 100 milliseconds on
         digitalWrite(pin, LOW);
-        delay(1); // 100 milliseconds off
     }
 }
 class testThread : public atomicx::Thread
@@ -33,7 +32,7 @@ protected:
         {
             fastBlink(id+1);
             Serial.println(String(id) + ": Thread is running " + String(nCount++));
-            //delay(1); // Sleep for 1/2 second (by instance 1,000,000 microseconds)
+            delay(2); // Sleep for 1/2 second (by instance 1,000,000 microseconds)
         }
 
         Serial.println("Thread " + String(id) + " stopped");
@@ -63,7 +62,6 @@ void loop() {
     // Print "Hello, World!" to the serial monitor:
     Serial.println("Hello, World!");
     Serial.flush();
-
 
     testThread test1(0);
     testThread test2(2000);

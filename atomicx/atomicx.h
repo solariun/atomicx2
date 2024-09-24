@@ -1,16 +1,18 @@
 #ifndef ATOMICX_H
 #define ATOMICX_H
 
-#include "Utils.h"
-
 #include <setjmp.h>
 
-#include <iostream>
-#include <cstdint>
+#include <stdio.h>
+#include <unistd.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <setjmp.h>
+#include <string.h>
 
 namespace atomicx {
 
-    class thread;
+    class Thread;
 
     enum class state {
         READY,
@@ -21,146 +23,103 @@ namespace atomicx {
         LOCKED
     };
 
-    /**
-     * @brief The context class
-    */
-    class context {
+    class Context
+    {
     public:
-        /**
-         * @brief context
-         */
-        virtual uint32_t ticks();
-        /** 
-         * @brief sleep
-         * @param ms    Sleep time in milliseconds
-         * @return      void
-         * @note        Sleep for the specified time in milliseconds
-         *              This is a blocking call
-        */
-        virtual void sleep(uint32_t ms);
+        friend class Thread;
 
-        /**
-         * @brief start thread execution
-         * @return  void
-         * @note    This function block while the threads are running
-        */
-        void start();
+        int start();
+            
+        void AddThread(Thread* thread);
 
-        /**
-         * @brief current_thread
-         * @return  thread*
-         * @note    Return the current thread
-        */
-        thread* current_thread();
-
-    protected:
-
-        /**
-         * @brief scheduler
-         * @return  thread*
-         * @note    Return the next thread to be executed
-        */
-        thread* scheduler();
-
-        /**
-         * @brief save_context
-         * @param sp        Stack pointer
-         * @param vstack    Virtual stack pointer
-         * @param size      Size of the stack
-         * @return          void
-         * @note            Save the current context
-        */
-        void save_context(size_t* &vstack, uint8_t* &sp, size_t size);
-
-        /**
-         * @brief restore_context
-         * @param vstack    Virtual stack pointer
-         * @param sp        Stack pointer
-         * @param size      Size of the stack
-         * @return          void
-         * @note            Restore the context
-        */
-        void restore_context(uint8_t* &sp, size_t* &vstack, size_t size); 
+        void RemoveThread(Thread* thread);
 
     private:
-        friend class thread;
+        friend class Thread;
 
-        // static thread list
-        static list<thread> m_threads;
+        bool CheckAllThreadsStopped();
 
-        // Self initialized
-        thread* m_current_thread{nullptr};
-        jmp_buf m_jmp{};
-        uint8_t* m_sp{nullptr};
+        bool m_running{false};
+        //jmp_buf m_kernelRegs;
+        Thread *m_activeThread;
+
+        Thread* begin{nullptr};
+        Thread* last{nullptr};
+        size_t threadCount{0};
     };
 
-    // Global standard context
-    extern context g_ctx;
+    extern Context ctx;
 
-    class thread : public node {
+    class Thread
+    {
     public:
-        thread() = delete;
-
-        /**
-         * @brief thread
-         * @param stack     Stack pointer
-         * @param N         Stack size
-         * @note            Constructor for the thread class
-         *                  This constructor is used to initialize 
-         *                  the stack pointer and stack size
-        */
-        template <std::size_t N>
-        thread(std::size_t (&stack)[N]) : m_stack(stack), m_stack_max_size(N) {
-            g_ctx.m_threads.push_back(*this);
-            (void) m_stack;
-            (void) m_stack_max_size;
-        }
-
-        ~thread();
-
-        /**
-         * @brief run
-         * @return  bool
-         * @note    Pure virtual function to be implemented by the derived class
-         *          This function is called when the thread is started
-        */
-        virtual bool run() = 0;
-
-        /**
-         * @brief begin
-         * @return  Iterator<node>
-         * @note    Return the begin iterator for the thread list
-        */
-        Iterator<thread> begin()
+        void defaultInit(size_t& vmemory, size_t maxSize)
         {
-            return Iterator<thread>(g_ctx.m_threads.begin());
+            stack.vmemory = &vmemory;
+            stack.maxSize = maxSize * sizeof(size_t);
+            stack.size = 0;
+
+            ctx.AddThread(this);
+
+            // Initialize the thread Context
+            threadState = state::READY;
         }
 
-        /**
-         * @brief end
-         * @return  Iterator<node>
-         * @note    Return the end iterator for the thread list
-        */
-        Iterator<thread> end()
+        template<size_t stackSize>
+        Thread(size_t (&vmemory)[stackSize])
         {
-            return Iterator<thread>(nullptr);
+            defaultInit(vmemory, stackSize);
         }
 
-        bool yield(uint32_t ms = 0);
+        Thread(size_t *vmemory, size_t stackSize)
+        {
+            defaultInit(*vmemory, stackSize);
+        }
 
-        virtual const char* name() = 0;
+        virtual ~Thread()
+        {
+            ctx.RemoveThread(this);
+        }
+
+        bool yield();
+
+        Thread* operator++(int)
+        {
+            return next;
+        }
+
+        Thread* begin() const
+        {
+            return ctx.begin;
+        }
+
+    protected:
+        bool virtual run() = 0;
+
+        bool virtual StackOverflow() = 0;
+
+        /* Used to allow developers to overload 
+           a Thread object with a custon Context */
+        virtual Context& getCtx();
+
     private:
-        friend class context;
+        friend class Context;
 
-        // Initialized on construction
-        std::size_t* m_stack;
-        std::size_t m_stack_max_size;
+        jmp_buf userRegs;
+        jmp_buf kernelRegs;
+        state threadState{state::STOPPED};
+        struct
+        {
+            uint8_t *kernelPointer{nullptr};
+            uint8_t *userPointer{nullptr};
+            size_t maxSize;
+            size_t size;
+            size_t *vmemory;
+        } stack;
 
-        // Self-initialized
-        uint8_t* m_sp{nullptr};
-        jmp_buf m_jmp{};
-        state m_state{state::READY};
-        size_t m_stack_used{0};
+        // Node control
+        Thread* next{nullptr};
+        Thread* prev{nullptr};
     };
 
 }; // namespace atomicx

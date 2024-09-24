@@ -33,7 +33,8 @@
 CC = g++
 
 # define any compile-time flags
-CFLAGS = -Ofast -Wall -g --std=c++11 -Wall -Wextra -Werror
+#CFLAGS = -Ofast -Wall -g --std=c++11 -Wall -Wextra -Werror
+CFLAGS = -O0 -Wall -g --std=c++11 -Wall -Wextra -Werror
 
 ifndef CPX_DIR
 	CPX_DIR=./atomicx
@@ -79,7 +80,8 @@ MAIN = bin/demo_atomix.bin
 
 all:  clean $(MAIN)
 	@echo  AtomicX binary $(MAIN) has beem compilled
-	lldb -o run ./$(MAIN)
+	if [ -n "$(DEBUG)" ]; then lldb ./$(MAIN); fi
+	if [ -n "$(RUN)" ]; then ./$(MAIN); fi
 
 $(MAIN): $(OBJS)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $(MAIN) $(OBJS) $(LFLAGS) $(LIBS)
@@ -89,7 +91,7 @@ $(MAIN): $(OBJS)
 # the rule(a .c file) and $@: the name of the target of the rule (a .o file)
 # (see the gnu make manual section about automatic variables)
 .cpp.o:
-	$(CC) $(CFLAGS) $(INCLUDES) -c $<  -o $@
+	$(CC) -v $(CFLAGS) $(INCLUDES) -c $<  -o $@
 
 clean:
 	$(RM) $(OBJS) *~ $(MAIN)

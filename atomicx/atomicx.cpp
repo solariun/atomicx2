@@ -1,125 +1,135 @@
 #include "atomicx.h"
 
+#ifndef ARDUINO
 #include <iostream>
 #include <memory>
+#else
+#include <Arduino.h>
+#endif
+
+#include <stddef.h>
+
+#include <stdio.h>
+#include <unistd.h>
+
+#include <string.h>
+#include <stdint.h>
+#include <setjmp.h>
+
+#include <stdlib.h>
 
 namespace atomicx {
 
-    // static list context::m_threads{};
-    list<thread> context::m_threads{}; 
+    Context ctx;
 
-    // Global standard context
-    context g_ctx{};
-
-    /*
-     * Static / weak functions
-    */
-
-
-
-    /*
-     * ITERATOR CLASS METHODS
-    */
-
-
-    /*
-     * CONTEXT CLASS METHODS
-    */
-
-    uint32_t context::ticks()
+    // Context Class Implementation
+    
+    int Context::start()
     {
-        return 0;
-    }
+        m_running = true;
 
-    void context::start()
-    {
-        m_current_thread = m_threads.head();
+        while(m_running)
+        {
+            if (threadCount == 0)
+            {
+                m_running = false;
+                break;
+            }
 
-        uint8_t sp = 0xAA;
-        m_sp = &sp; // save the stack pointer
+            m_activeThread = m_activeThread == nullptr ? begin : m_activeThread->next;
 
-        while (m_threads.count() > 0 && m_current_thread != nullptr) {
-            if (m_current_thread->run()) {
-                uint8_t sp = 0x10;
-                m_sp = &sp; // save the stack pointer
+            if (m_activeThread != nullptr)
+            {
+                uint8_t kernelPointer = 0xAA;
+                m_activeThread->stack.kernelPointer = &kernelPointer;
 
-                if (m_current_thread->m_state == state::READY) {
-                    if (setjmp(m_jmp) == 0) {
-                        m_current_thread->m_state = state::RUNNING;
-                        m_current_thread->run();
-                        m_current_thread->m_state = state::STOPPED;
+                if (setjmp(m_activeThread->kernelRegs) == 0)
+                {
+                    if (m_activeThread->threadState == state::READY)
+                    {
+                        m_activeThread->threadState = state::RUNNING;
+                        m_activeThread->run();
+                        m_activeThread->threadState = state::STOPPED;
+                    } else {
+                        longjmp(m_activeThread->userRegs, 1);
                     }
                 }
             }
-            m_current_thread = scheduler();
         }
+
+        return 0;
     }
 
-    void context::save_context(size_t* &vstack, uint8_t* &sp, size_t size)
+    void Context::AddThread(Thread* thread)
     {
-        memccpy(vstack, sp, size, sizeof(size_t));
-    }
-
-    void context::restore_context(uint8_t* &sp, size_t* &vstack, size_t size)
-    {
-        memccpy(sp, vstack, size, sizeof(size_t));
-    }
-
-
-    /*
-    * THREAD CLASS METHODS
-    */
-
-    thread* context::current_thread() {
-            return m_current_thread;
-    }
-
-    thread* context::scheduler() {
-        return (thread*) m_current_thread->next;
-    }
-
-    void context::sleep(uint32_t ms)
-    {
-        (void) ms;
-    }
-
-    /*
-     * THREAD CLASS METHODS
-    */
-
-    thread::~thread()
-    {
-        g_ctx.m_threads.remove(*this);
-    }
-
-    bool thread::yield(uint32_t ms)
-    {
-        (void) ms;
+        if (begin == nullptr)
         {
-            uint8_t sp = 0xFF;
-            std::cout << "m_current: " << g_ctx.m_current_thread << std::endl << std::flush;
-
-            g_ctx.m_current_thread->m_sp = &sp; // save the stack pointer
-
-            // Since we are dealing with a Stack, the size if calculated reversevly
-            g_ctx.m_current_thread->m_stack_used =  (size_t) (g_ctx.m_sp - g_ctx.m_current_thread->m_sp);
-
-            std::cout << "stack used: " << g_ctx.m_current_thread->m_stack_used << std::endl << std::flush;
-            
-            g_ctx.m_current_thread->m_state = state::SLEEPING;
-
-            g_ctx.save_context(g_ctx.m_current_thread->m_stack, g_ctx.m_current_thread->m_sp, g_ctx.m_current_thread->m_stack_used);
-
-            if (setjmp(g_ctx.m_current_thread->m_jmp) == 0) {
-                longjmp(g_ctx.m_jmp, 1);
-            }
-            
-            g_ctx.restore_context(g_ctx.m_current_thread->m_sp, g_ctx.m_current_thread->m_stack, g_ctx.m_current_thread->m_stack_used);
-
-            g_ctx.m_current_thread->m_state = state::RUNNING;
-
-            return true;
+            begin = thread;
+            last = thread;
+        } else {
+            last->next = thread;
+            thread->prev = last;
+            last = thread;
         }
+        threadCount++;
+    }
+
+    void Context::RemoveThread(Thread* thread)
+    {
+        if (thread == begin)
+        {
+            begin = thread->next;
+        }
+        else if (thread == last)
+        {
+            last = thread->prev;
+        }
+        else {
+            if (thread->prev != nullptr)
+                thread->prev->next = thread->next;
+            if (thread->next != nullptr)
+                thread->next->prev = thread->prev;
+        }
+        threadCount--;
+    }
+
+    // Thread Class Implementation
+
+    bool Thread::yield()
+    {
+        //Create stack protection
+        //By backing up data in the stack
+        //to be used after the stack is re-written
+        uint8_t stackPointer = 0xBB;
+        //Context &kernelCtx = m_kernelCtx; //backup;
+        
+        // Calculate stack size and store are stack.size
+        stack.userPointer = &stackPointer;
+        stack.size = (size_t)(stack.kernelPointer - stack.userPointer);
+
+        if (stack.size > stack.maxSize)
+        {
+            // Call the user defined StackOverflow function
+            StackOverflow();
+            return false;
+        }
+
+        if (setjmp(userRegs) == 0)
+        {
+            Context &ctx = getCtx(); //backup;
+            
+            memcpy(ctx.m_activeThread->stack.vmemory, ctx.m_activeThread->stack.userPointer, ctx.m_activeThread->stack.size);
+            ctx.m_activeThread->threadState = state::SLEEPING;
+            longjmp(ctx.m_activeThread->kernelRegs, 1);
+        }
+
+        Context &ctx = getCtx(); //backup;
+
+        //std::cout << "Thread " << ctx.m_activeThread << " is yielding" << std::endl;
+        memcpy(ctx.m_activeThread->stack.userPointer, ctx.m_activeThread->stack.vmemory, ctx.m_activeThread->stack.size);
+        ctx.m_activeThread->threadState = state::READY;
+
+        return true;
     }
 
 }; // namespace atomicx

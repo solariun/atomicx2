@@ -1,55 +1,101 @@
+#ifndef ARDUINO
+
+#include <iostream>
+#include <unistd.h>
 #include "atomicx/atomicx.h"
 
-class th : public atomicx::thread {
+static atomicx::Context ctx;
+
+class contextThread : public atomicx::Thread
+{
 public:
-    th() : atomicx::thread(m_stack) {
-        std::cout << "thread::thread() - constructing." << std::endl;
-    }
-    ~th() {
-        std::cout << "thread::~thread() - destructing." << std::endl;
+    template<size_t stackSize>
+    contextThread(size_t (&vmemory)[stackSize]) : atomicx::Thread(vmemory, stackSize)
+    {
     }
 
-    bool run() override {
-        do
+    ~contextThread() override
+    {
+    }
+
+protected:
+    virtual bool run() override = 0;
+    virtual bool StackOverflow() override = 0;
+    
+    atomicx::Context& getCtx() override
+    {
+        return ctx;
+    }
+};
+
+class testThread : public contextThread
+{
+public:
+    testThread(size_t start) : contextThread(vmemory), start(start)
+    {
+        id = counterId++;
+        std::cout << "Thread " << id << " created" << std::endl;
+    }
+
+    ~testThread()
+    {
+    }
+protected:
+    bool run() override
+    {
+        std::cout << "Thread is running" << std::endl;
+        size_t nCount=start;
+
+        while(yield())
         {
-            std::cout << this << ": thread::run() EXECUTING... (current:" << atomicx::g_ctx.current_thread() << std::endl;
-        } while(yield(1000));
+            std::cout << id << ": Thread is running " << nCount++ << std::endl;
+            usleep(500000); // Sleep for 1/2 second (by instance 1,000,000 microseconds)
+        }
+
+        std::cout << "Thread " << id << " stopped" << std::endl;
 
         return true;
     }
 
-    const char* name() override 
+    bool StackOverflow() override
     {
-        return "thread_example";
+        return false;
     }
-
 private:
-    size_t m_stack[1024];
+    size_t vmemory[1024];
+    size_t start;
+    static size_t counterId;
+    size_t id{0};
 };
 
-void printThreadInfo(th& thread) {
-    for (auto th : thread)
-        std::cout << "th::" << th->name() << ":" << th << std::endl;
-}
+// Initialize the static counter
+size_t testThread::counterId = 0;
 
-int main() {
-    
-    th t1;
-    th t2;
-    th t3;
+int main() 
+{
+    testThread test1(0);
+    testThread test2(2000);
+    testThread test3(3000);
 
+    // Test the thread pool deletion
     {
-        th t4;
-        th t5;
-
-        std::cout << "t1:" << (*(t1.begin())) << "->" << (*(t1.begin()))->next << std::endl;
-        printThreadInfo(t5);
+        testThread test4(4000);
+        testThread test5(5000);
+        testThread test6(6000);
     }
 
-    printThreadInfo(t1);
+    testThread test7(7000);
+    testThread test8(8000);
 
-    atomicx::g_ctx.start();
+
+    for(atomicx::Thread* thread = test1.begin(); thread != nullptr; thread = (*thread)++)
+    {
+        std::cout << "Thread " << thread << " is in the thread pool" << std::endl;
+    }
+    
+    ctx.start();
 
     return 0;
 }
 
+#endif
