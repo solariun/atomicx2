@@ -22,6 +22,11 @@ namespace atomicx {
 
     // Context Class Implementation
     
+    void Context::setNextActiveThread()
+    {
+        m_activeThread = m_activeThread == nullptr ? begin : m_activeThread->next;
+    }
+
     int Context::start()
     {
         m_running = true;
@@ -34,8 +39,8 @@ namespace atomicx {
                 break;
             }
 
-            m_activeThread = m_activeThread == nullptr ? begin : m_activeThread->next;
-
+            setNextActiveThread();
+            
             if (m_activeThread != nullptr)
             {
                 uint8_t kernelPointer = 0xAA;
