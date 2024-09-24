@@ -93,9 +93,7 @@ namespace atomicx {
         threadCount--;
     }
 
-    // Thread Class Implementation
-
-    bool Thread::yield()
+    bool Context::yield()
     {
         //Create stack protection
         //By backing up data in the stack
@@ -104,32 +102,37 @@ namespace atomicx {
         //Context &kernelCtx = m_kernelCtx; //backup;
         
         // Calculate stack size and store are stack.size
-        stack.userPointer = &stackPointer;
-        stack.size = (size_t)(stack.kernelPointer - stack.userPointer);
+        m_activeThread->stack.userPointer = &stackPointer;
+        m_activeThread->stack.size = (size_t)(m_activeThread->stack.kernelPointer - m_activeThread->stack.userPointer);
 
-        if (stack.size > stack.maxSize)
+        if (m_activeThread->stack.size > m_activeThread->stack.maxSize)
         {
             // Call the user defined StackOverflow function
-            StackOverflow();
+            m_activeThread->StackOverflow();
             return false;
         }
 
-        if (setjmp(userRegs) == 0)
-        {
-            Context &ctx = getCtx(); //backup;
-            
-            memcpy(ctx.m_activeThread->stack.vmemory, ctx.m_activeThread->stack.userPointer, ctx.m_activeThread->stack.size);
-            ctx.m_activeThread->threadState = state::SLEEPING;
-            longjmp(ctx.m_activeThread->kernelRegs, 1);
+        if (setjmp(m_activeThread->userRegs) == 0)
+        {            
+            memcpy(m_activeThread->stack.vmemory, m_activeThread->stack.userPointer, m_activeThread->stack.size);
+            m_activeThread->threadState = state::SLEEPING;
+            longjmp(m_activeThread->kernelRegs, 1);
         }
 
-        Context &ctx = getCtx(); //backup;
-
-        //std::cout << "Thread " << ctx.m_activeThread << " is yielding" << std::endl;
-        memcpy(ctx.m_activeThread->stack.userPointer, ctx.m_activeThread->stack.vmemory, ctx.m_activeThread->stack.size);
-        ctx.m_activeThread->threadState = state::READY;
+        {
+            std::cout << "Thread " << m_activeThread << " is yielding. CTX:" << &ctx << "Stack:" << (size_t*)m_activeThread->stack.userPointer << std::endl;
+            memcpy(m_activeThread->stack.userPointer, m_activeThread->stack.vmemory, m_activeThread->stack.size);
+            m_activeThread->threadState = state::READY;
+        }
 
         return true;
     }
 
-}; // namespace atomicx
+    // Thread Class Implementation
+
+    bool Thread::yield()
+    {
+        return _ctx.yield();
+    }
+
+}; // namespace atomicx 
