@@ -4,13 +4,13 @@
 #include <unistd.h>
 #include "atomicx/atomicx.h"
 
-static atomicx::Context ctx;
+static atomicx::Context localCtx;
 
 class contextThread : public atomicx::Thread
 {
 public:
     template<size_t stackSize>
-    contextThread(size_t (&vmemory)[stackSize]) : atomicx::Thread(vmemory, stackSize)
+    contextThread(size_t (&vmemory)[stackSize]) : Thread(vmemory, localCtx)
     {
     }
 
@@ -21,17 +21,12 @@ public:
 protected:
     virtual bool run() override = 0;
     virtual bool StackOverflow() override = 0;
-    
-    atomicx::Context& getCtx() override
-    {
-        return ctx;
-    }
 };
 
-class testThread : public contextThread
+class testThread : public atomicx::Thread
 {
 public:
-    testThread(size_t start) : contextThread(vmemory), start(start)
+    testThread(size_t start) : Thread(vmemory, localCtx), start(start)
     {
         id = counterId++;
         std::cout << "Thread " << id << " created" << std::endl;
@@ -43,13 +38,13 @@ public:
 protected:
     bool run() override
     {
-        std::cout << "Thread is running" << std::endl;
+        std::cout << "Thread is running" <<  ", CTX:" << &localCtx << std::endl;
         size_t nCount=start;
 
-        while(yield())
+        while(localCtx.yield())
         {
             std::cout << id << ": Thread is running " << nCount++ << std::endl;
-            usleep(500000); // Sleep for 1/2 second (by instance 1,000,000 microseconds)
+            usleep(100000); // Sleep for 1/2 second (by instance 1,000,000 microseconds)
         }
 
         std::cout << "Thread " << id << " stopped" << std::endl;
@@ -93,8 +88,8 @@ int main()
         std::cout << "Thread " << thread << " is in the thread pool" << std::endl;
     }
     
-    ctx.start();
-
+    //localCtx.start();
+    localCtx.start();
     return 0;
 }
 
