@@ -19,8 +19,6 @@
 #include <stdlib.h>
 
 namespace atomicx {
-
-    // Context Class Implementation
     
     void Context::setNextActiveThread()
     {
@@ -96,11 +94,10 @@ namespace atomicx {
         threadCount--;
     }
 
-    bool Context::yield()
+    bool Context::yield(size_t arg, yieldCmd cmd)
     {
-        //Create stack protection
-        //By backing up data in the stack
-        //to be used after the stack is re-written
+        (void)cmd; (void)arg;
+        
         uint8_t stackPointer = 0xBB;
         //Context &kernelCtx = m_kernelCtx; //backup;
         
@@ -124,7 +121,7 @@ namespace atomicx {
 
         // Contextualized process to protect the stack
         {
-            std::cout << "Thread " << m_activeThread << " is yielding. CTX:" << this << "Stack:" << (size_t*)m_activeThread->stack.userPointer << std::endl;
+            //std::cout << "Thread " << m_activeThread << " is yielding. CTX:" << this << "Stack:" << (size_t*)m_activeThread->stack.userPointer << std::endl;
             memcpy(m_activeThread->stack.userPointer, m_activeThread->stack.vmemory, m_activeThread->stack.size);
             m_activeThread->threadState = state::READY;
         }

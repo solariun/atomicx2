@@ -23,6 +23,11 @@ namespace atomicx {
         LOCKED
     };
 
+    enum class yieldCmd {
+        YIELD,
+        POOL
+    };
+
     class Context
     {
     public:
@@ -35,7 +40,7 @@ namespace atomicx {
         
         int start();
 
-        bool yield();
+        bool yield(size_t arg = 0, yieldCmd cmd = yieldCmd::YIELD);
             
         void AddThread(Thread* thread);
 

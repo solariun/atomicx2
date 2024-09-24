@@ -3,6 +3,8 @@
 
 constexpr int pin = 13; // Default LED pin on Arduino Nano
 
+static atomicx::Context localCtx;
+
 void fastBlink(size_t n) {
     for (size_t i = 0; i < n; ++i) {
         digitalWrite(pin, HIGH);
@@ -13,7 +15,7 @@ void fastBlink(size_t n) {
 class testThread : public atomicx::Thread
 {
 public:
-    testThread(size_t start) : Thread(vmemory), start(start)
+    testThread(size_t start) : Thread(vmemory, localCtx), start(start)
     {
         id = counterId++;
         Serial.println("Thread " + String(id) + " created");
@@ -28,7 +30,7 @@ protected:
         Serial.println("Thread is running");
         size_t nCount=start;
 
-        while(yield())
+        while(localCtx.yield())
         {
             fastBlink(id+1);
             Serial.println(String(id) + ": Thread is running " + String(nCount++));
@@ -72,6 +74,7 @@ void loop() {
     {
         Serial.println("Thread " + String((size_t)thread) + " is in the thread pool");
     }
-    atomicx::ctx.start();
+    
+    localCtx.start();
 
 }

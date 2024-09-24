@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include "atomicx/atomicx.h"
 
+//User defined thread context
 static atomicx::Context localCtx;
 
 class contextThread : public atomicx::Thread
