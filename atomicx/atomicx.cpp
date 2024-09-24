@@ -20,8 +20,6 @@
 
 namespace atomicx {
 
-    Context ctx;
-
     // Context Class Implementation
     
     int Context::start()
@@ -119,8 +117,9 @@ namespace atomicx {
             longjmp(m_activeThread->kernelRegs, 1);
         }
 
+        // Contextualized process to protect the stack
         {
-            std::cout << "Thread " << m_activeThread << " is yielding. CTX:" << &ctx << "Stack:" << (size_t*)m_activeThread->stack.userPointer << std::endl;
+            std::cout << "Thread " << m_activeThread << " is yielding. CTX:" << this << "Stack:" << (size_t*)m_activeThread->stack.userPointer << std::endl;
             memcpy(m_activeThread->stack.userPointer, m_activeThread->stack.vmemory, m_activeThread->stack.size);
             m_activeThread->threadState = state::READY;
         }
