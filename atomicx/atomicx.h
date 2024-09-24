@@ -31,6 +31,8 @@ namespace atomicx {
         Context()
         {}
 
+        void setNextActiveThread();
+        
         int start();
 
         bool yield();
