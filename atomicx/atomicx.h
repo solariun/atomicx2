@@ -28,7 +28,12 @@ namespace atomicx {
     public:
         friend class Thread;
 
+        Context()
+        {}
+
         int start();
+
+        bool yield();
             
         void AddThread(Thread* thread);
 
@@ -39,47 +44,42 @@ namespace atomicx {
 
         bool CheckAllThreadsStopped();
 
-        bool m_running{false};
-        //jmp_buf m_kernelRegs;
-        Thread *m_activeThread;
-
         Thread* begin{nullptr};
         Thread* last{nullptr};
         size_t threadCount{0};
+
+        bool m_running{false};
+        Thread *m_activeThread;
     };
 
-    extern Context ctx;
+    //extern Context ctx;
 
     class Thread
     {
     public:
-        void defaultInit(size_t& vmemory, size_t maxSize)
+        void defaultInit(size_t* vmemory, size_t maxSize)
         {
-            stack.vmemory = &vmemory;
+            stack.vmemory = vmemory;
             stack.maxSize = maxSize * sizeof(size_t);
             stack.size = 0;
 
-            ctx.AddThread(this);
+            _ctx.AddThread(this);
 
             // Initialize the thread Context
             threadState = state::READY;
         }
 
         template<size_t stackSize>
-        Thread(size_t (&vmemory)[stackSize])
+        Thread(size_t (&vmemory)[stackSize], Context& ictx) : _ctx(ictx)
         {
             defaultInit(vmemory, stackSize);
         }
 
-        Thread(size_t *vmemory, size_t stackSize)
-        {
-            defaultInit(*vmemory, stackSize);
-        }
-
         virtual ~Thread()
         {
-            ctx.RemoveThread(this);
+            _ctx.RemoveThread(this);
         }
+
 
         bool yield();
 
@@ -88,19 +88,15 @@ namespace atomicx {
             return next;
         }
 
-        Thread* begin() const
+        Thread* begin()
         {
-            return ctx.begin;
+            return _ctx.begin;
         }
 
     protected:
         bool virtual run() = 0;
 
         bool virtual StackOverflow() = 0;
-
-        /* Used to allow developers to overload 
-           a Thread object with a custon Context */
-        virtual Context& getCtx();
 
     private:
         friend class Context;
@@ -120,6 +116,8 @@ namespace atomicx {
         // Node control
         Thread* next{nullptr};
         Thread* prev{nullptr};
+
+        Context& _ctx;
     };
 
 }; // namespace atomicx
