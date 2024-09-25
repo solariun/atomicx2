@@ -10,6 +10,12 @@
 #include <setjmp.h>
 #include <string.h>
 
+/* Official version */
+#define ATOMICX_VERSION "2.0.0.proto"
+#define ATOMIC_VERSION_LABEL "AtomicX v" ATOMICX_VERSION " built at " __TIMESTAMP__
+
+using atomicx_time = uint32_t;
+
 namespace atomicx {
 
     class Thread;
@@ -63,12 +69,50 @@ namespace atomicx {
 
     class Thread
     {
+    private:
+        friend class Context;
+
+        jmp_buf userRegs;
+        jmp_buf kernelRegs;
+        state threadState{state::STOPPED};
+
+        struct Metrix
+        {
+            uint16_t poolId;
+
+            atomicx_time nice;
+            atomicx_time lastExecTime;
+            atomicx_time lastYieldTime;
+
+            size_t maxSize;
+            size_t size;
+            
+        } metrix;
+
+        struct
+        {
+            uint8_t *kernelPointer{nullptr};
+            uint8_t *userPointer{nullptr};
+            size_t *vmemory;
+        } stack;
+
+        // Node control
+        Thread* next{nullptr};
+        Thread* prev{nullptr};
+
+        Context& _ctx;
+
+    protected:
+        bool virtual run() = 0;
+
+        bool virtual StackOverflow() = 0;
+
     public:
         void defaultInit(size_t* vmemory, size_t maxSize)
         {
             stack.vmemory = vmemory;
-            stack.maxSize = maxSize * sizeof(size_t);
-            stack.size = 0;
+            metrix.maxSize = maxSize * sizeof(size_t);
+            metrix.size = 0;
 
             _ctx.AddThread(this);
 
@@ -87,7 +131,6 @@ namespace atomicx {
             _ctx.RemoveThread(this);
         }
 
-
         bool yield();
 
         Thread* operator++(int)
@@ -100,31 +143,19 @@ namespace atomicx {
             return _ctx.begin;
         }
 
-    protected:
-        bool virtual run() = 0;
-
-        bool virtual StackOverflow() = 0;
-
-    private:
-        friend class Context;
-
-        jmp_buf userRegs;
-        jmp_buf kernelRegs;
-        state threadState{state::STOPPED};
-        struct
+        // Get metrix data
+        const Metrix& getMetrix()
         {
-            uint8_t *kernelPointer{nullptr};
-            uint8_t *userPointer{nullptr};
-            size_t maxSize;
-            size_t size;
-            size_t *vmemory;
-        } stack;
+            return (const Metrix&) metrix;
+        }
 
-        // Node control
-        Thread* next{nullptr};
-        Thread* prev{nullptr};
+        // Set Metrix data
+        bool setNice(atomicx_time nice)
+        {
+            metrix.nice = nice;
+            return true;
+        }
 
-        Context& _ctx;
     };
 
 }; // namespace atomicx
