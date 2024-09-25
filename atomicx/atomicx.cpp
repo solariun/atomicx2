@@ -103,9 +103,9 @@ namespace atomicx {
         
         // Calculate stack size and store are stack.size
         m_activeThread->stack.userPointer = &stackPointer;
-        m_activeThread->stack.size = (size_t)(m_activeThread->stack.kernelPointer - m_activeThread->stack.userPointer);
+        m_activeThread->metrix.size = (size_t)(m_activeThread->stack.kernelPointer - m_activeThread->stack.userPointer);
 
-        if (m_activeThread->stack.size > m_activeThread->stack.maxSize)
+        if (m_activeThread->metrix.size > m_activeThread->metrix.maxSize)
         {
             // Call the user defined StackOverflow function
             m_activeThread->StackOverflow();
@@ -114,7 +114,7 @@ namespace atomicx {
 
         if (setjmp(m_activeThread->userRegs) == 0)
         {            
-            memcpy(m_activeThread->stack.vmemory, m_activeThread->stack.userPointer, m_activeThread->stack.size);
+            memcpy(m_activeThread->stack.vmemory, m_activeThread->stack.userPointer, m_activeThread->metrix.size);
             m_activeThread->threadState = state::SLEEPING;
             longjmp(m_activeThread->kernelRegs, 1);
         }
@@ -122,7 +122,7 @@ namespace atomicx {
         // Contextualized process to protect the stack
         {
             //std::cout << "Thread " << m_activeThread << " is yielding. CTX:" << this << "Stack:" << (size_t*)m_activeThread->stack.userPointer << std::endl;
-            memcpy(m_activeThread->stack.userPointer, m_activeThread->stack.vmemory, m_activeThread->stack.size);
+            memcpy(m_activeThread->stack.userPointer, m_activeThread->stack.vmemory, m_activeThread->metrix.size);
             m_activeThread->threadState = state::READY;
         }
 
