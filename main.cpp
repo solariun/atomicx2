@@ -44,6 +44,7 @@ protected:
 
         while(localCtx.yield())
         {
+            auto metrix = getMetrix();
             std::cout << id << ": Thread is running " << nCount++ << std::endl;
             usleep(100000); // Sleep for 1/2 second (by instance 1,000,000 microseconds)
         }
