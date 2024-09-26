@@ -2,10 +2,44 @@
 
 #include <iostream>
 #include <unistd.h>
+#include <unistd.h>
+#include <sys/time.h>
+#include <unistd.h>
+
+#include <cstring>
+#include <cstdint>
+#include <iostream>
+#include <string>
+
 #include "atomicx/atomicx.h"
+
 
 //User defined thread context
 static atomicx::Context localCtx;
+
+atomicx_time atomicx::getTick (void)
+{
+#ifndef FAKE_TIMER
+    usleep (20000);
+    struct timeval tp;
+    gettimeofday (&tp, NULL);
+
+    return (atomicx_time)tp.tv_sec * 1000 + tp.tv_usec / 1000;
+#else
+    nCounter++;
+
+    return nCounter;
+#endif
+}
+
+void atomicx::sleepTicks(atomicx_time nSleep)
+{
+#ifndef FAKE_TIMER
+    usleep ((useconds_t)nSleep * 1000);
+#else
+    while (nSleep); usleep(100);
+#endif
+}
 
 class contextThread : public atomicx::Thread
 {
@@ -27,29 +61,34 @@ protected:
 class testThread : public atomicx::Thread
 {
 public:
-    testThread(size_t start) : Thread(vmemory, localCtx), start(start)
+    testThread(size_t start) : Thread(VMEM(vmemory), localCtx), start(start)
     {
         id = counterId++;
         std::cout << "Thread " << id << " created" << std::endl;
+        setNice(500);
     }
 
     ~testThread()
     {
     }
+
 protected:
     bool run() override
     {
         std::cout << "Thread is running" <<  ", CTX:" << &localCtx << std::endl;
         size_t nCount=start;
+        
+        setNice(1000 * (id+1));
 
-        while(localCtx.yield())
+        while(yield())
         {
             auto metrix = getMetrix();
-            std::cout << id << ": Thread is running " << nCount++ << std::endl;
-            usleep(100000); // Sleep for 1/2 second (by instance 1,000,000 microseconds)
+            std::cout << "Thread " << id << ": Thread is running " << nCount++ << ", size: " << metrix.stackSize << "/" << metrix.maxStackSize << std::endl;
         }
 
         std::cout << "Thread " << id << " stopped" << std::endl;
+
+        exit(1);
 
         return true;
     }
@@ -58,6 +97,7 @@ protected:
     {
         return false;
     }
+
 private:
     size_t vmemory[1024];
     size_t start;
@@ -90,7 +130,6 @@ int main()
         std::cout << "Thread " << thread << " is in the thread pool" << std::endl;
     }
     
-    //localCtx.start();
     localCtx.start();
     return 0;
 }

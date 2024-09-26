@@ -19,26 +19,58 @@
 #include <stdlib.h>
 
 namespace atomicx {
-    
+
     void Context::setNextActiveThread()
     {
-        m_activeThread = m_activeThread == nullptr ? begin : m_activeThread->next;
+        Thread* thread = nullptr;
+
+        thread = m_nextThread = m_activeThread;
+        
+        for(size_t nCount = 0; nCount < threadCount; nCount++)
+        {
+            thread = (thread == nullptr) ? begin : thread->next;
+
+            if (thread != nullptr)
+            {
+            switch (thread->threadState)
+            {
+            case state::READY:
+                m_nextThread = thread;
+                return;
+                
+            case state::SLEEPING:
+                if (m_nextThread->metrix.nextExecTime >= thread->metrix.nextExecTime)
+                    m_nextThread = thread;
+                break;
+
+            default:
+                break;
+            }
+            }
+        }
+    }
+
+    void Context::sleepUntilTick(atomicx_time until)
+    {
+        atomicx_time now = getTick();
+
+        if (now < until)
+        {
+            sleepTicks(until - now);
+        }
     }
 
     int Context::start()
     {
         m_running = true;
 
-        while(m_running)
-        {
-            if (threadCount == 0)
-            {
-                m_running = false;
-                break;
-            }
+        m_activeThread = begin;
 
-            setNextActiveThread();
-            
+        while(m_running && threadCount > 0)
+        {
+            // for debugging
+            //m_activeThread = m_activeThread == nullptr ? begin : m_activeThread->next;
+
             if (m_activeThread != nullptr)
             {
                 uint8_t kernelPointer = 0xAA;
@@ -46,6 +78,7 @@ namespace atomicx {
 
                 if (setjmp(m_activeThread->kernelRegs) == 0)
                 {
+
                     if (m_activeThread->threadState == state::READY)
                     {
                         m_activeThread->threadState = state::RUNNING;
@@ -56,6 +89,9 @@ namespace atomicx {
                     }
                 }
             }
+            
+            setNextActiveThread();
+            m_activeThread = m_nextThread;
         }
 
         return 0;
@@ -97,15 +133,13 @@ namespace atomicx {
     bool Context::yield(size_t arg, yieldCmd cmd)
     {
         (void)cmd; (void)arg;
-        
         uint8_t stackPointer = 0xBB;
-        //Context &kernelCtx = m_kernelCtx; //backup;
         
         // Calculate stack size and store are stack.size
         m_activeThread->stack.userPointer = &stackPointer;
-        m_activeThread->metrix.size = (size_t)(m_activeThread->stack.kernelPointer - m_activeThread->stack.userPointer);
+        m_activeThread->metrix.stackSize = (size_t)(m_activeThread->stack.kernelPointer - m_activeThread->stack.userPointer);
 
-        if (m_activeThread->metrix.size > m_activeThread->metrix.maxSize)
+        if (m_activeThread->metrix.stackSize > m_activeThread->metrix.maxStackSize)
         {
             // Call the user defined StackOverflow function
             m_activeThread->StackOverflow();
@@ -113,18 +147,20 @@ namespace atomicx {
         }
 
         if (setjmp(m_activeThread->userRegs) == 0)
-        {            
-            memcpy(m_activeThread->stack.vmemory, m_activeThread->stack.userPointer, m_activeThread->metrix.size);
+        {   
+            m_activeThread->metrix.nextExecTime = getTick() + m_activeThread->metrix.nice;
+            //setNextActiveThread();
+
+            memcpy(m_activeThread->stack.vmemory, m_activeThread->stack.userPointer, m_activeThread->metrix.stackSize);
             m_activeThread->threadState = state::SLEEPING;
             longjmp(m_activeThread->kernelRegs, 1);
         }
 
-        // Contextualized process to protect the stack
-        {
-            //std::cout << "Thread " << m_activeThread << " is yielding. CTX:" << this << "Stack:" << (size_t*)m_activeThread->stack.userPointer << std::endl;
-            memcpy(m_activeThread->stack.userPointer, m_activeThread->stack.vmemory, m_activeThread->metrix.size);
-            m_activeThread->threadState = state::READY;
-        }
+        memcpy(m_activeThread->stack.userPointer, m_activeThread->stack.vmemory, m_activeThread->metrix.stackSize);
+        
+        m_activeThread->threadState = state::READY;
+        sleepUntilTick(m_activeThread->metrix.nextExecTime);        
+        m_activeThread->metrix.nextExecTime = getTick();
 
         return true;
     }

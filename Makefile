@@ -91,7 +91,7 @@ $(MAIN): $(OBJS)
 # the rule(a .c file) and $@: the name of the target of the rule (a .o file)
 # (see the gnu make manual section about automatic variables)
 .cpp.o:
-	$(CC) -v $(CFLAGS) $(INCLUDES) -c $<  -o $@
+	$(CC) $(CFLAGS) $(INCLUDES) -c $<  -o $@
 
 clean:
 	$(RM) $(OBJS) *~ $(MAIN)
