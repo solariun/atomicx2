@@ -35,21 +35,21 @@ namespace atomicx {
         SLEEPING,
         STOPPED,
         WAIT,
-        LOCKED
+        TIMEDOUT,
+        LOCKED,
+        NOW
     };
 
-    enum class yieldCmd {
-        YIELD,
-        POOL
+    struct Tag
+    {
+        size_t param;
+        size_t value;
     };
-
+    
     class Context
     {
     public:
         friend class Thread;
-
-        Context()
-        {}
 
         void setNextActiveThread();
 
@@ -57,7 +57,7 @@ namespace atomicx {
         
         int start();
 
-        bool yield(size_t arg = 0, yieldCmd cmd = yieldCmd::YIELD);
+        bool yield(size_t arg = 0, state cmd = state::SLEEPING);
             
         void AddThread(Thread* thread);
 
@@ -79,6 +79,34 @@ namespace atomicx {
 
     //extern Context ctx;
 
+    // ----------------------------------------------
+    // Timeout class
+    // ----------------------------------------------
+    class Timeout
+    {
+        public:
+
+            Timeout ();
+
+            Timeout (atomicx_time nTimoutValue);
+
+            void Set(atomicx_time nTimoutValue);
+
+            bool IsTimedout();
+
+            atomicx_time GetRemaining();
+
+            atomicx_time GetDurationSince(atomicx_time startTime);
+
+            atomicx_time GetTimeoutValue();
+            
+        private:
+            atomicx_time m_timeoutValue = 0;
+    };
+
+    // ----------------------------------------------
+    // Thread class
+    // ----------------------------------------------
     class Thread
     {
     private:
@@ -86,10 +114,11 @@ namespace atomicx {
 
         jmp_buf userRegs;
         jmp_buf kernelRegs;
-        state threadState{state::STOPPED};
 
         struct Metrix
         {
+            state state{state::STOPPED};
+
             uint16_t poolId;
 
             atomicx_time nice;
@@ -97,8 +126,12 @@ namespace atomicx {
 
             size_t maxStackSize;
             size_t stackSize;
-            
-        } metrix;
+
+            Tag tag;
+            void* refId;
+            uint8_t waitChannel;
+            atomicx_time waitTimeout;   
+        } metrics;
 
         struct
         {
@@ -119,56 +152,26 @@ namespace atomicx {
         bool virtual StackOverflow() = 0;
 
     public:
-        void defaultInit(size_t* vmemory, size_t maxSize)
-        {
-            stack.vmemory = vmemory;
-            metrix.maxStackSize = maxSize * sizeof(size_t);
-            metrix.stackSize = 0;
+        void defaultInit(size_t* vmemory, size_t maxSize);
 
-            metrix.nextExecTime = getTick();
-            metrix.nice = 0;
-            
-            _ctx.AddThread(this);
+        Thread(size_t& vmemory, size_t stackSize, Context& ictx);
 
-            // Initialize the thread Context
-            threadState = state::READY;
-        }
-
-        Thread(size_t& vmemory, size_t stackSize, Context& ictx) : _ctx(ictx)
-        {
-            defaultInit(&vmemory, stackSize);
-        }
-
-        virtual ~Thread()
-        {
-            _ctx.RemoveThread(this);
-        }
+        virtual ~Thread();
 
         bool yield();
 
-        Thread* operator++(int)
-        {
-            return next;
-        }
-
-        Thread* begin()
-        {
-            return _ctx.begin;
-        }
-
-        // Get metrix data
-        const Metrix& getMetrix()
-        {
-            return (const Metrix&) metrix;
-        }
-
+        Thread* operator++(int);
+ 
+        Thread* begin();
+ 
+        // Get metrics data
+        const Metrix& getMetrix();
+ 
         // Set Metrix data
-        bool setNice(atomicx_time nice)
-        {
-            metrix.nice = nice;
-            return true;
-        }
+        bool setNice(atomicx_time nice);
 
+        // Wait and notify
+        template<typename T> bool wait(T& refId, Tag& tag, atomicx_time timeout, uint8_t channel = 0);
     };
 
 }; // namespace atomicx

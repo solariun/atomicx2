@@ -45,9 +45,9 @@ public:
             digitalWrite(pin, LOW);
         }
 
-        auto& metrix = getMetrix();
+        auto& metrics = getMetrix();
 
-        snprintf(text, sizeof(text), "%d: Count:%d, size:%d/%d bytes, CTX:%d, Thread:%d Free:%u", id, nCount++, metrix.stackSize, metrix.maxStackSize, sizeof(localCtx), sizeof(atomicx::Thread), freeMemory());
+        snprintf(text, sizeof(text), "%d: Count:%d, size:%d/%d bytes, CTX:%d, Thread:%d Free:%u", id, nCount++, metrics.stackSize, metrics.maxStackSize, sizeof(localCtx), sizeof(atomicx::Thread), freeMemory());
         Serial.println(text); Serial.flush();
     }
 
@@ -68,7 +68,7 @@ protected:
         //Serial.println("Thread is running");
         size_t nCount=start;
         setNice(1000 * (id+1));
-        
+
         while(localCtx.yield())
         {
             fastBlink(id+1, nCount);
@@ -81,8 +81,8 @@ protected:
 
     bool StackOverflow() override
     {
-        auto& metrix = getMetrix();   
-        Serial.println("Thread " + String(id) + " stack overflow: " + String(metrix.stackSize) + "/" + String(metrix.maxStackSize) + " bytes"); 
+        auto& metrics = getMetrix();   
+        Serial.println("Thread " + String(id) + " stack overflow: " + String(metrics.stackSize) + "/" + String(metrics.maxStackSize) + " bytes"); 
         return false;
     }
 

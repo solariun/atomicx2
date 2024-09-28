@@ -82,8 +82,8 @@ protected:
 
         while(yield())
         {
-            auto metrix = getMetrix();
-            std::cout << "Thread " << id << ": Thread is running " << nCount++ << ", size: " << metrix.stackSize << "/" << metrix.maxStackSize << std::endl;
+            auto metrics = getMetrix();
+            std::cout << "Thread " << id << ": Thread is running " << nCount++ << ", size: " << metrics.stackSize << "/" << metrics.maxStackSize << ", Thread: " << sizeof(atomicx::Thread) << ", Context: " << sizeof(localCtx) << std::endl;
         }
 
         std::cout << "Thread " << id << " stopped" << std::endl;
