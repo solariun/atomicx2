@@ -82,6 +82,7 @@ all:  clean $(MAIN)
 	@echo  AtomicX binary $(MAIN) has beem compilled
 	if [ -n "$(DEBUG)" ]; then lldb ./$(MAIN); fi
 	if [ -n "$(RUN)" ]; then ./$(MAIN); fi
+	if [ -n "$(ARDUINO)" ]; then arduino-cli compile --upload --fqbn arduino:avr:nano --programmer usbasp arduino/simple; fi
 
 $(MAIN): $(OBJS)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $(MAIN) $(OBJS) $(LFLAGS) $(LIBS)

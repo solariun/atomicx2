@@ -80,7 +80,7 @@ protected:
         
         setNice(1000 * (id+1));
 
-        while(yield())
+        while(yieldUntil(100))
         {
             auto metrics = getMetrix();
             std::cout << "Thread " << id << ": Thread is running " << nCount++ << ", size: " << metrics.stackSize << "/" << metrics.maxStackSize << ", Thread: " << sizeof(atomicx::Thread) << ", Context: " << sizeof(localCtx) << std::endl;

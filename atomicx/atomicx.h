@@ -46,6 +46,31 @@ namespace atomicx {
         size_t value;
     };
     
+    // ----------------------------------------------
+    // Timeout class
+    // ----------------------------------------------
+    class Timeout
+    {
+        public:
+
+            Timeout ();
+
+            Timeout (atomicx_time nTimoutValue, atomicx_time from = 0);
+
+            void set(atomicx_time nTimoutValue, atomicx_time from = 0);
+
+            bool hasExpired();
+
+            atomicx_time getRemaining();
+
+            atomicx_time getDurationSince(atomicx_time startTime);
+
+            atomicx_time getTimeoutValue();
+            
+        private:
+            atomicx_time m_timeoutValue = 0;
+    };
+
     class Context
     {
     public:
@@ -56,6 +81,8 @@ namespace atomicx {
         void sleepUntilTick(atomicx_time nSleep);
         
         int start();
+
+        bool yieldUntil(atomicx_time timeout, size_t arg = 0, state cmd = state::SLEEPING);
 
         bool yield(size_t arg = 0, state cmd = state::SLEEPING);
             
@@ -80,31 +107,6 @@ namespace atomicx {
     //extern Context ctx;
 
     // ----------------------------------------------
-    // Timeout class
-    // ----------------------------------------------
-    class Timeout
-    {
-        public:
-
-            Timeout ();
-
-            Timeout (atomicx_time nTimoutValue);
-
-            void Set(atomicx_time nTimoutValue);
-
-            bool IsTimedout();
-
-            atomicx_time GetRemaining();
-
-            atomicx_time GetDurationSince(atomicx_time startTime);
-
-            atomicx_time GetTimeoutValue();
-            
-        private:
-            atomicx_time m_timeoutValue = 0;
-    };
-
-    // ----------------------------------------------
     // Thread class
     // ----------------------------------------------
     class Thread
@@ -115,7 +117,7 @@ namespace atomicx {
         jmp_buf userRegs;
         jmp_buf kernelRegs;
 
-        struct Metrix
+        struct Metrics
         {
             state state{state::STOPPED};
 
@@ -159,15 +161,16 @@ namespace atomicx {
         virtual ~Thread();
 
         bool yield();
+        bool yieldUntil(atomicx_time timeout);
 
         Thread* operator++(int);
  
         Thread* begin();
  
         // Get metrics data
-        const Metrix& getMetrix();
+        const Metrics& getMetrix();
  
-        // Set Metrix data
+        // Set Metrics data
         bool setNice(atomicx_time nice);
 
         // Wait and notify

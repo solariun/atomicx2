@@ -69,7 +69,7 @@ protected:
         size_t nCount=start;
         setNice(1000 * (id+1));
 
-        while(localCtx.yield())
+        while(yieldUntil(10))
         {
             fastBlink(id+1, nCount);
             delay(1); // Sleep for 1/2 second (by instance 1,000,000 microseconds)

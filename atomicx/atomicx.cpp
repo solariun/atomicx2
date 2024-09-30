@@ -169,6 +169,54 @@ namespace atomicx {
         return true;
     }
 
+    bool Context::yieldUntil(atomicx_time timeout, size_t arg, state cmd)
+    {   
+        if(m_activeThread->metrics.nextExecTime + timeout <= getTick()) return yield(arg, cmd);
+
+        return true;
+    }
+    
+    // ----------------------------------------------
+    // Timeout class Implementation
+    // ----------------------------------------------
+
+    Timeout::Timeout () : m_timeoutValue (0)
+    {
+        set (0);
+    }
+
+    Timeout::Timeout (atomicx_time nTimeoutValue, atomicx_time from) : m_timeoutValue (0)
+    {
+        set (nTimeoutValue, from);
+    }
+
+    void Timeout::set(atomicx_time nTimeoutValue, atomicx_time from)
+    {
+        m_timeoutValue = nTimeoutValue + (from ? from : getTick ());
+    }
+
+    bool Timeout::hasExpired()
+    {
+        return (getTick () < m_timeoutValue) ? false : true;
+    }
+
+    atomicx_time Timeout::getRemaining()
+    {
+        auto nNow = getTick ();
+
+        return (nNow < m_timeoutValue) ? m_timeoutValue - nNow : 0;
+    }
+
+    atomicx_time Timeout::getDurationSince(atomicx_time startTime)
+    {
+        return startTime - getRemaining ();
+    }
+
+    atomicx_time Timeout::getTimeoutValue()
+    {
+        return m_timeoutValue;
+    }
+
     // ----------------------------------------------
     // Thread Class Implementation
     // ----------------------------------------------
@@ -176,6 +224,11 @@ namespace atomicx {
     bool Thread::yield()
     {
         return _ctx.yield();
+    }
+
+    bool Thread::yieldUntil(atomicx_time timeout)
+    {
+        return _ctx.yieldUntil(timeout);
     }
 
     void Thread::defaultInit(size_t* vmemory, size_t maxSize)
@@ -214,57 +267,16 @@ namespace atomicx {
     }
 
     // Get metrix data
-    const Thread::Metrix& Thread::getMetrix()
+    const Thread::Metrics& Thread::getMetrix()
     {
-        return (const Metrix&) metrics;
+        return (const Metrics&) metrics;
     }
 
-    // Set Metrix data
+    // Set Metrics data
     bool Thread::setNice(atomicx_time nice)
     {
         metrics.nice = nice;
         return true;
-    }
-
-    // ----------------------------------------------
-    // Timeout class Implementation
-    // ----------------------------------------------
-
-    Timeout::Timeout () : m_timeoutValue (0)
-    {
-        Set (0);
-    }
-
-    Timeout::Timeout (atomicx_time nTimeoutValue) : m_timeoutValue (0)
-    {
-        Set (nTimeoutValue);
-    }
-
-    void Timeout::Set(atomicx_time nTimeoutValue)
-    {
-        m_timeoutValue = nTimeoutValue ? nTimeoutValue + getTick () : 0;
-    }
-
-    bool Timeout::IsTimedout()
-    {
-        return (m_timeoutValue == 0 || getTick () < m_timeoutValue) ? false : true;
-    }
-
-    atomicx_time Timeout::GetRemaining()
-    {
-        auto nNow = getTick ();
-
-        return (nNow < m_timeoutValue) ? m_timeoutValue - nNow : 0;
-    }
-
-    atomicx_time Timeout::GetDurationSince(atomicx_time startTime)
-    {
-        return startTime - GetRemaining ();
-    }
-
-    atomicx_time Timeout::GetTimeoutValue()
-    {
-        return m_timeoutValue;
     }
 
     // ----------------------------------------------
