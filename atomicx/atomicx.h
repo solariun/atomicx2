@@ -22,14 +22,17 @@ using atomicx_time = uint32_t;
 
 namespace atomicx {
 
-    class Thread;
+    class thread;
 
     // Those functions MUST be 
     // implemented by the user
     atomicx_time getTick();
     void sleepTicks(atomicx_time nsleep);
 
-    enum class state {
+    using RefId = size_t;
+
+    enum class state 
+    {
         READY,
         RUNNING,
         SLEEPING,
@@ -40,41 +43,22 @@ namespace atomicx {
         NOW
     };
 
+    enum class Notify
+    {
+        ONE,
+        ALL
+    };
+
     struct Tag
     {
         size_t param;
         size_t value;
     };
-    
-    // ----------------------------------------------
-    // Timeout class
-    // ----------------------------------------------
-    class Timeout
-    {
-        public:
-
-            Timeout ();
-
-            Timeout (atomicx_time nTimoutValue, atomicx_time from = 0);
-
-            void set(atomicx_time nTimoutValue, atomicx_time from = 0);
-
-            bool hasExpired();
-
-            atomicx_time getRemaining();
-
-            atomicx_time getDurationSince(atomicx_time startTime);
-
-            atomicx_time getTimeoutValue();
-            
-        private:
-            atomicx_time m_timeoutValue = 0;
-    };
 
     class Context
     {
     public:
-        friend class Thread;
+        friend class thread;
 
         void setNextActiveThread();
 
@@ -82,34 +66,30 @@ namespace atomicx {
         
         int start();
 
-        bool yieldUntil(atomicx_time timeout, size_t arg = 0, state cmd = state::SLEEPING);
+        void AddThread(thread* thread);
 
-        bool yield(size_t arg = 0, state cmd = state::SLEEPING);
-            
-        void AddThread(Thread* thread);
-
-        void RemoveThread(Thread* thread);
+        void RemoveThread(thread* thread);
 
     private:
-        friend class Thread;
+        friend class thread;
 
         bool CheckAllThreadsStopped();
 
-        Thread* begin{nullptr};
-        Thread* last{nullptr};
+        thread* begin{nullptr};
+        thread* last{nullptr};
         size_t threadCount{0};
 
         bool m_running{false};
-        Thread *m_activeThread;
-        Thread *m_nextThread;
+        thread *m_activeThread;
+        thread *m_nextThread;
     };
 
-    //extern Context ctx;
+    extern Context ctx;
 
     // ----------------------------------------------
     // Thread class
     // ----------------------------------------------
-    class Thread
+    class thread
     {
     private:
         friend class Context;
@@ -121,18 +101,18 @@ namespace atomicx {
         {
             state state{state::STOPPED};
 
-            uint16_t poolId;
+            uint16_t poolId{0};
 
-            atomicx_time nice;
-            atomicx_time nextExecTime;
+            atomicx_time nice{0};
+            atomicx_time nextExecTime{0};
 
-            size_t maxStackSize;
-            size_t stackSize;
+            size_t maxStackSize{0};
+            size_t stackSize{0};
 
-            Tag tag;
-            void* refId;
-            uint8_t waitChannel;
-            atomicx_time waitTimeout;   
+            Tag tag{0, 0};
+            RefId* refId{nullptr};
+            uint8_t waitChannel{0};
+            atomicx_time waitTimeout{0};
         } metrics;
 
         struct
@@ -143,39 +123,45 @@ namespace atomicx {
         } stack;
 
         // Node control
-        Thread* next{nullptr};
-        Thread* prev{nullptr};
-
-        Context& _ctx;
+        thread* next{nullptr};
+        thread* prev{nullptr};
 
     protected:
         bool virtual run() = 0;
 
         bool virtual StackOverflow() = 0;
-
+ 
     public:
+        bool yield(size_t arg = 0, state cmd = state::SLEEPING);
+        bool yieldUntil(atomicx_time timeout, size_t arg = 0, state cmd = state::SLEEPING);
+
         void defaultInit(size_t* vmemory, size_t maxSize);
 
-        Thread(size_t& vmemory, size_t stackSize, Context& ictx);
+        thread(size_t& vmemory, size_t stackSize);
 
-        virtual ~Thread();
+        virtual ~thread();
 
-        bool yield();
         bool yieldUntil(atomicx_time timeout);
 
-        Thread* operator++(int);
+        thread* operator++(int);
  
-        Thread* begin();
+        thread* begin();
  
         // Get metrics data
-        const Metrics& getMetrix();
+        const Metrics& getMetrics();
  
         // Set Metrics data
         bool setNice(atomicx_time nice);
 
         // Wait and notify
-        template<typename T> bool wait(T& refId, Tag& tag, atomicx_time timeout, uint8_t channel = 0);
+        bool wait(RefId& refId, Tag& tag, atomicx_time timeout, uint8_t channel);
+
+        size_t notify(RefId& refId, Notify type, Tag tag, atomicx_time timeout, uint8_t channel);
     };
 
+
+
 }; // namespace atomicx
+
+
 #endif // ATOMICX_H

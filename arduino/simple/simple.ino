@@ -34,7 +34,7 @@ void atomicx::sleepTicks(atomicx_time nSleep)
 
 char text[100];
 
-class testThread : public atomicx::Thread
+class testThread : public atomicx::thread
 {
 public:
 
@@ -45,13 +45,13 @@ public:
             digitalWrite(pin, LOW);
         }
 
-        auto& metrics = getMetrix();
+        auto& metrics = getMetrics();
 
-        snprintf(text, sizeof(text), "%d: Count:%d, size:%d/%d bytes, CTX:%d, Thread:%d Free:%u", id, nCount++, metrics.stackSize, metrics.maxStackSize, sizeof(localCtx), sizeof(atomicx::Thread), freeMemory());
+        snprintf(text, sizeof(text), "%d: Count:%d, size:%d/%d bytes, CTX:%d, Thread:%d Free:%u", id, nCount++, metrics.stackSize, metrics.maxStackSize, sizeof(localCtx), sizeof(atomicx::thread), freeMemory());
         Serial.println(text); Serial.flush();
     }
 
-    testThread(size_t start) : Thread(VMEM(vmemory), localCtx), start(start)
+    testThread(size_t start) : thread(VMEM(vmemory), localCtx), start(start)
     {
         id = counterId++;
         Serial.println("Thread " + String(id) + " created");
@@ -69,7 +69,7 @@ protected:
         size_t nCount=start;
         setNice(1000 * (id+1));
 
-        while(yieldUntil(10))
+        while(localCtx.yield())
         {
             fastBlink(id+1, nCount);
             delay(1); // Sleep for 1/2 second (by instance 1,000,000 microseconds)
@@ -81,7 +81,7 @@ protected:
 
     bool StackOverflow() override
     {
-        auto& metrics = getMetrix();   
+        auto& metrics = getMetrics();   
         Serial.println("Thread " + String(id) + " stack overflow: " + String(metrics.stackSize) + "/" + String(metrics.maxStackSize) + " bytes"); 
         return false;
     }
@@ -113,7 +113,7 @@ void loop() {
     testThread test5(5000);
     testThread test6(6000);
 
-    for(atomicx::Thread* thread = test1.begin(); thread != nullptr; thread = (*thread)++)
+    for(atomicx::thread* thread = test1.begin(); thread != nullptr; thread = (*thread)++)
     {
         Serial.println("Thread " + String((size_t)thread) + " is in the thread pool");
     }

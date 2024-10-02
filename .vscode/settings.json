@@ -52,6 +52,19 @@
         "unordered_map": "cpp",
         "variant": "cpp",
         "vector": "cpp",
-        "algorithm": "cpp"
-    }
+        "algorithm": "cpp",
+        "deque": "cpp",
+        "execution": "cpp",
+        "memory": "cpp",
+        "print": "cpp",
+        "queue": "cpp",
+        "stack": "cpp"
+    },
+    "makefile.launchConfigurations": [
+        {
+            "cwd": "/Users/gustavocampos/develop/atomicx2/bin",
+            "binaryPath": "/Users/gustavocampos/develop/atomicx2/bin/demo_atomix.bin",
+            "binaryArgs": []
+        }
+    ]
 }

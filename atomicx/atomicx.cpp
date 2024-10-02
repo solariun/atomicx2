@@ -20,9 +20,11 @@
 
 namespace atomicx {
 
+    Context ctx;
+
     void Context::setNextActiveThread()
     {
-        Thread* thread = nullptr;
+        thread* thread = nullptr;
 
         thread = m_nextThread = m_activeThread;
         
@@ -46,8 +48,10 @@ namespace atomicx {
             case state::WAIT:
                 if (thread->metrics.waitTimeout > 0
                     && m_nextThread->metrics.nextExecTime >= thread->metrics.nextExecTime)
+                {
                     m_nextThread = thread;
-                break;
+                    break;
+                }
             default:
                 break;
             }
@@ -68,21 +72,22 @@ namespace atomicx {
     {
         m_running = true;
 
-        m_activeThread = begin;
+        m_nextThread = begin;
 
         while(m_running && threadCount > 0)
         {
             // for debugging
             //m_activeThread = m_activeThread == nullptr ? begin : m_activeThread->next;
+            
+            // for production
+            m_activeThread = m_nextThread;
 
             if (m_activeThread != nullptr)
             {
                 uint8_t kernelPointer = 0xAA;
                 m_activeThread->stack.kernelPointer = &kernelPointer;
-
                 if (setjmp(m_activeThread->kernelRegs) == 0)
                 {
-
                     if (m_activeThread->metrics.state == state::READY)
                     {
                         m_activeThread->metrics.state = state::RUNNING;
@@ -92,16 +97,14 @@ namespace atomicx {
                         longjmp(m_activeThread->userRegs, 1);
                     }
                 }
-            }
-            
-            setNextActiveThread();
-            m_activeThread = m_nextThread;
-        }
 
+                setNextActiveThread();
+            }
+        }
         return 0;
     }
 
-    void Context::AddThread(Thread* thread)
+    void Context::AddThread(thread* thread)
     {
         if (begin == nullptr)
         {
@@ -115,7 +118,7 @@ namespace atomicx {
         threadCount++;
     }
 
-    void Context::RemoveThread(Thread* thread)
+    void Context::RemoveThread(thread* thread)
     {
         if (thread == begin)
         {
@@ -134,146 +137,97 @@ namespace atomicx {
         threadCount--;
     }
 
-    bool Context::yield(size_t arg, state cmd)
-    {
-        (void)cmd; (void)arg;
-        uint8_t stackPointer = 0xBB;
-        
-        // Calculate stack size and store are stack.size
-        m_activeThread->stack.userPointer = &stackPointer;
-        m_activeThread->metrics.stackSize = (size_t)(m_activeThread->stack.kernelPointer - m_activeThread->stack.userPointer);
-
-        if (m_activeThread->metrics.stackSize > m_activeThread->metrics.maxStackSize)
-        {
-            // Call the user defined StackOverflow function
-            m_activeThread->StackOverflow();
-            return false;
-        }
-
-        if (setjmp(m_activeThread->userRegs) == 0)
-        {   
-            m_activeThread->metrics.nextExecTime = getTick() + m_activeThread->metrics.nice;
-            //setNextActiveThread();
-
-            memcpy(m_activeThread->stack.vmemory, m_activeThread->stack.userPointer, m_activeThread->metrics.stackSize);
-            m_activeThread->metrics.state = cmd;
-            longjmp(m_activeThread->kernelRegs, 1);
-        }
-
-        memcpy(m_activeThread->stack.userPointer, m_activeThread->stack.vmemory, m_activeThread->metrics.stackSize);
-        
-        m_activeThread->metrics.state = state::READY;
-        sleepUntilTick(m_activeThread->metrics.nextExecTime);        
-        m_activeThread->metrics.nextExecTime = getTick();
-
-        return true;
-    }
-
-    bool Context::yieldUntil(atomicx_time timeout, size_t arg, state cmd)
-    {   
-        if(m_activeThread->metrics.nextExecTime + timeout <= getTick()) return yield(arg, cmd);
-
-        return true;
-    }
-    
-    // ----------------------------------------------
-    // Timeout class Implementation
-    // ----------------------------------------------
-
-    Timeout::Timeout () : m_timeoutValue (0)
-    {
-        set (0);
-    }
-
-    Timeout::Timeout (atomicx_time nTimeoutValue, atomicx_time from) : m_timeoutValue (0)
-    {
-        set (nTimeoutValue, from);
-    }
-
-    void Timeout::set(atomicx_time nTimeoutValue, atomicx_time from)
-    {
-        m_timeoutValue = nTimeoutValue + (from ? from : getTick ());
-    }
-
-    bool Timeout::hasExpired()
-    {
-        return (getTick () < m_timeoutValue) ? false : true;
-    }
-
-    atomicx_time Timeout::getRemaining()
-    {
-        auto nNow = getTick ();
-
-        return (nNow < m_timeoutValue) ? m_timeoutValue - nNow : 0;
-    }
-
-    atomicx_time Timeout::getDurationSince(atomicx_time startTime)
-    {
-        return startTime - getRemaining ();
-    }
-
-    atomicx_time Timeout::getTimeoutValue()
-    {
-        return m_timeoutValue;
-    }
-
     // ----------------------------------------------
     // Thread Class Implementation
     // ----------------------------------------------
 
-    bool Thread::yield()
+   bool thread::yield(size_t arg, state cmd)
     {
-        return _ctx.yield();
+        (void)cmd; (void)arg;
+        uint8_t stackPointer = 0xBB;
+                
+        // Calculate stack size and store are stack.size
+        ctx.m_activeThread->stack.userPointer = &stackPointer;
+        ctx.m_activeThread->metrics.stackSize = (size_t)(ctx.m_activeThread->stack.kernelPointer - ctx.m_activeThread->stack.userPointer);
+
+        if (ctx.m_activeThread->metrics.stackSize > ctx.m_activeThread->metrics.maxStackSize)
+        {
+            // Call the user defined StackOverflow function
+            ctx.m_activeThread->StackOverflow();
+            return false;
+        }
+
+        if (setjmp(ctx.m_activeThread->userRegs) == 0)
+        {   
+            memcpy(ctx.m_activeThread->stack.vmemory, ctx.m_activeThread->stack.userPointer, ctx.m_activeThread->metrics.stackSize);
+            
+            ctx.m_activeThread->metrics.state = cmd;
+
+            ctx.m_activeThread->metrics.nextExecTime = getTick() + ctx.m_activeThread->metrics.nice;            
+
+            //ctx.setNextActiveThread();
+
+            longjmp(ctx.m_activeThread->kernelRegs, 1);
+        } else {
+            memcpy(ctx.m_activeThread->stack.userPointer, ctx.m_activeThread->stack.vmemory, ctx.m_activeThread->metrics.stackSize);
+        }
+
+        ctx.m_activeThread->metrics.state = state::READY;
+        ctx.sleepUntilTick(ctx.m_activeThread->metrics.nextExecTime);        
+        ctx.m_activeThread->metrics.nextExecTime = getTick();
+
+        return true;
     }
 
-    bool Thread::yieldUntil(atomicx_time timeout)
-    {
-        return _ctx.yieldUntil(timeout);
+    bool thread::yieldUntil(atomicx_time timeout, size_t arg, state cmd)
+    {   
+        if(ctx.m_activeThread->metrics.nextExecTime + timeout <= getTick()) 
+            return yield(arg, cmd);
+
+        return true;
     }
 
-    void Thread::defaultInit(size_t* vmemory, size_t maxSize)
+    void thread::defaultInit(size_t* vmemory, size_t maxSize)
     {
         stack.vmemory = vmemory;
         metrics.maxStackSize = maxSize * sizeof(size_t);
         metrics.stackSize = 0;
 
         metrics.nextExecTime = getTick();
-        metrics.nice = 0;
-        
-        _ctx.AddThread(this);
 
         // Initialize the thread Context
         metrics.state = state::READY;
     }
 
-    Thread::Thread(size_t& vmemory, size_t stackSize, Context& ictx) : _ctx(ictx)
+    thread::thread(size_t& vmemory, size_t stackSize)
     {
         defaultInit(&vmemory, stackSize);
+        ctx.AddThread(this);
     }
 
-    Thread::~Thread()
+    thread::~thread()
     {
-        _ctx.RemoveThread(this);
+        ctx.RemoveThread(this);
     }
 
-    Thread* Thread::operator++(int)
+    thread* thread::operator++(int)
     {
         return next;
     }
 
-    Thread* Thread::begin()
+    thread* thread::begin()
     {
-        return _ctx.begin;
+        return ctx.begin;
     }
 
     // Get metrix data
-    const Thread::Metrics& Thread::getMetrix()
+    const thread::Metrics& thread::getMetrics()
     {
         return (const Metrics&) metrics;
     }
 
     // Set Metrics data
-    bool Thread::setNice(atomicx_time nice)
+    bool thread::setNice(atomicx_time nice)
     {
         metrics.nice = nice;
         return true;
@@ -283,19 +237,49 @@ namespace atomicx {
     // Wait / Notify methods implementation
     // ----------------------------------------------
 
-    template<typename T> bool Thread::wait(T& refId, Tag& tag, atomicx_time timeout, uint8_t channel)
+    bool thread::wait(RefId& refId, Tag& tag, atomicx_time timeout, uint8_t channel)
     {
         metrics.tag = tag;
         metrics.refId = &refId;
         metrics.waitChannel = channel;
         metrics.waitTimeout = timeout;
 
-        if(_ctx.yield(timeout, state::WAIT) && metrics.state == state::TIMEDOUT)
+        // TODO: Add a notification for a wait call transaction.
+        //ctx.yield();
+
+        if(yield(timeout, state::WAIT) && metrics.state == state::TIMEDOUT)
         {
-            return false;
+        return false;
         }
 
         return true;
     }
 
+    size_t thread::notify(RefId& refId, Notify type, Tag tag, atomicx_time timeout, uint8_t channel)
+    {
+        size_t count = 0;
+
+        (void)refId; (void)type; (void)tag; (void)timeout; (void)channel;
+
+        // TODO: Add a waiting for a wait call transaction.
+        for(auto* i = begin(); i != nullptr; i = i->next)
+        {
+            if (i->metrics.state == state::WAIT)
+            {
+                if(i->metrics.waitChannel == channel && i->metrics.refId == &refId)
+                {
+                    i->metrics.state = state::SLEEPING;
+                    i->metrics.nextExecTime = getTick() + timeout;
+                    i->metrics.tag = tag;
+                    i->metrics.refId = nullptr;
+                    count++;
+                    if(type == Notify::ONE) break;
+                }
+            }
+        }
+
+        yield();
+
+        return count;
+    }
 }; // namespace atomicx 
