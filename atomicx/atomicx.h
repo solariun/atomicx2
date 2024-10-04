@@ -14,22 +14,23 @@
 #define ATOMICX_VERSION "2.0.0.proto"
 #define ATOMIC_VERSION_LABEL "AtomicX v" ATOMICX_VERSION " built at " __TIMESTAMP__
 
-using atomicx_time = uint32_t;
-
 // Helper macro to define the virtual memory
 // parameters automatically
 #define VMEM(vmemory) vmemory[0], sizeof(vmemory) / sizeof(size_t)
 
-namespace atomicx {
+namespace ax {
+
+#define ATIMICX_SYS_CHANEL 0
 
     class thread;
 
+    using Time = uint32_t;
+    using RefId = size_t;
+
     // Those functions MUST be 
     // implemented by the user
-    atomicx_time getTick();
-    void sleepTicks(atomicx_time nsleep);
-
-    using RefId = size_t;
+    Time getTick();
+    void sleepTicks(Time nsleep);
 
     enum class state 
     {
@@ -55,6 +56,31 @@ namespace atomicx {
         size_t value;
     };
 
+    /**
+     * @brief Timeout Check object
+     */
+
+    class Timeout
+    {
+        public:
+            Timeout ();
+
+            Timeout (Time timeoutValue);
+
+            void set(Time timeoutValue);
+
+            bool isTimedOut();
+
+            Time getRemaining();
+
+            Time getDurationSince(Time startTime);
+
+            Time operator ()();
+            
+        private:
+            Time m_timeoutValue = 0;
+    };
+    
     class Context
     {
     public:
@@ -62,7 +88,7 @@ namespace atomicx {
 
         void setNextActiveThread();
 
-        void sleepUntilTick(atomicx_time nSleep);
+        void sleepUntilTick(Time nSleep);
         
         int start();
 
@@ -103,8 +129,8 @@ namespace atomicx {
 
             uint16_t poolId{0};
 
-            atomicx_time nice{0};
-            atomicx_time nextExecTime{0};
+            Time nice{0};
+            Time nextExecTime{0};
 
             size_t maxStackSize{0};
             size_t stackSize{0};
@@ -112,7 +138,7 @@ namespace atomicx {
             Tag tag{0, 0};
             RefId* refId{nullptr};
             uint8_t waitChannel{0};
-            atomicx_time waitTimeout{0};
+            Timeout waitTimeout{0};
         } metrics;
 
         struct
@@ -132,16 +158,14 @@ namespace atomicx {
         bool virtual StackOverflow() = 0;
  
     public:
-        bool yield(size_t arg = 0, state cmd = state::SLEEPING);
-        bool yieldUntil(atomicx_time timeout, size_t arg = 0, state cmd = state::SLEEPING);
+        bool yield(Timeout arg = 0, state cmd = state::SLEEPING);
+        bool yieldUntil(Time timeout, size_t arg = 0, state cmd = state::SLEEPING);
 
         void defaultInit(size_t* vmemory, size_t maxSize);
 
         thread(size_t& vmemory, size_t stackSize);
 
         virtual ~thread();
-
-        bool yieldUntil(atomicx_time timeout);
 
         thread* operator++(int);
  
@@ -151,17 +175,14 @@ namespace atomicx {
         const Metrics& getMetrics();
  
         // Set Metrics data
-        bool setNice(atomicx_time nice);
+        bool setNice(Time nice);
 
         // Wait and notify
-        bool wait(RefId& refId, Tag& tag, atomicx_time timeout, uint8_t channel);
+        bool wait(RefId& refId, Tag& tag, Timeout timeout, uint8_t channel);
 
-        size_t notify(RefId& refId, Notify type, Tag tag, atomicx_time timeout, uint8_t channel);
+        size_t notify(RefId& refId, Notify type, Tag tag, Timeout timeout, uint8_t channel);
     };
-
-
-
-}; // namespace atomicx
+}; // namespace ax
 
 
 #endif // ATOMICX_H

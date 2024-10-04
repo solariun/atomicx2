@@ -13,14 +13,14 @@
 
 #include "atomicx/atomicx.h"
 
-atomicx_time atomicx::getTick (void)
+ax::Time ax::getTick (void)
 {
 #ifndef FAKE_TIMER
     usleep (20000);
     struct timeval tp;
     gettimeofday (&tp, NULL);
 
-    return (atomicx_time)tp.tv_sec * 1000 + tp.tv_usec / 1000;
+    return (Time)tp.tv_sec * 1000 + tp.tv_usec / 1000;
 #else
     nCounter++;
 
@@ -28,7 +28,7 @@ atomicx_time atomicx::getTick (void)
 #endif
 }
 
-void atomicx::sleepTicks(atomicx_time nSleep)
+void ax::sleepTicks(ax::Time nSleep)
 {
 #ifndef FAKE_TIMER
     usleep ((useconds_t)nSleep * 1000);
@@ -37,12 +37,12 @@ void atomicx::sleepTicks(atomicx_time nSleep)
 #endif
 }
 
-atomicx::RefId tranporVar=0;
+ax::RefId tranporVar=0;
 
 /**
  * @brief Test consumer thread
  */
-class testThread : public atomicx::thread
+class testThread : public ax::thread
 {
 public:
     testThread(size_t start) : thread(VMEM(vmemory)), start(start)
@@ -59,19 +59,19 @@ public:
 protected:
     bool run() override
     {
-        std::cout << "Thread is running" <<  ", CTX:" << &atomicx::ctx << std::endl;
+        std::cout << "Thread is running" <<  ", CTX:" << &ax::ctx << std::endl;
         size_t nCount=start;
         
         setNice(1000 * (id+1));
-        atomicx::Tag tag;
+        ax::Tag tag;
 
         //while(yield())
         while(wait(tranporVar, tag, 0, 1))
         {
             auto metrics = getMetrics();
-            std::cout << "Thread " << id << ": Thread is running " << nCount++ << ", size: " << metrics.stackSize << "/" << metrics.maxStackSize << ", Thread: " << sizeof(atomicx::thread) << ", Context: " << sizeof(atomicx::ctx ) << ", Tag: " << tag.param << "/" << tag.value << std::endl;
+            std::cout << "Thread " << id << ": Thread is running " << nCount++ << ", size: " << metrics.stackSize << "/" << metrics.maxStackSize << ", Thread: " << sizeof(ax::thread) << ", Context: " << sizeof(ax::ctx ) << ", Tag: " << tag.param << "/" << tag.value << std::endl;
 
-            notify(tranporVar, atomicx::Notify::ONE, {id, nCount}, 0, 1);
+            notify(tranporVar, ax::Notify::ONE, {id, nCount}, 0, 1);
         }
 
         std::cout << "Thread " << id << " stopped" << std::endl;
@@ -99,7 +99,7 @@ size_t testThread::counterId = 0;
 /** 
  * @brief Test producer thread
 */
-class testProducerThread : public atomicx::thread
+class testProducerThread : public ax::thread
 {
 public:
     testProducerThread(size_t start) : thread(VMEM(vmemory)), start(start)
@@ -116,7 +116,7 @@ public:
 protected:
     void printProcess()
     {
-        std::cout << "Producer Thread is running" <<  ", CTX:" << &(atomicx::ctx) << std::endl;
+        std::cout << "Producer Thread is running" <<  ", CTX:" << &(ax::ctx) << std::endl;
         
         for(auto* thread = begin(); thread != nullptr; thread = (*thread)++)
         {
@@ -124,12 +124,12 @@ protected:
             std::cout << "     Thread " << thread << " status: " << (size_t) metrics.state <<  ", size: " << metrics.stackSize << "/" << metrics.maxStackSize << std::endl;
         }
 
-        yield(0, atomicx::state::NOW);
+        yield(0, ax::state::NOW);
     }       
 
     bool run() override
     {
-        std::cout << "Producer Thread is running" <<  ", CTX:" << &(atomicx::ctx) << std::endl;
+        std::cout << "Producer Thread is running" <<  ", CTX:" << &(ax::ctx) << std::endl;
         size_t nCount=start;
         
         setNice(1000 * (id+1));
@@ -138,7 +138,7 @@ protected:
         {
             printProcess();
 
-            notify(tranporVar, atomicx::Notify::ONE, {id, nCount}, 0, 1);
+            notify(tranporVar, ax::Notify::ONE, {id, nCount}, 0, 1);
 
             auto metrics = getMetrics();
             for(size_t i=0; i<1000; i++)
@@ -193,7 +193,7 @@ int main()
         std::cout << "Thread " << thread << " is in the thread pool" << std::endl;
     }
     
-    atomicx::ctx.start();
+    ax::ctx.start();
 
     return 0;
 }

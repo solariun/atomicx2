@@ -18,10 +18,52 @@
 
 #include <stdlib.h>
 
-namespace atomicx {
+namespace ax {
 
     Context ctx;
 
+    // ----------------------------------------------
+    // AtomicX Timeout methods implementation
+    // ----------------------------------------------
+    Timeout::Timeout () : m_timeoutValue (0)
+    {
+        set (0);
+    }
+
+    Timeout::Timeout (Time nTimeoutValue) : m_timeoutValue (0)
+    {
+        set (nTimeoutValue);
+    }
+
+    void Timeout::set(Time nTimeoutValue)
+    {
+        m_timeoutValue = nTimeoutValue ? nTimeoutValue + getTick() : 0;
+    }
+
+    bool Timeout::isTimedOut()
+    {
+        return (m_timeoutValue == 0 || getTick () < m_timeoutValue) ? false : true;
+    }
+
+    Time Timeout::getRemaining()
+    {
+        auto nNow = getTick ();
+
+        return (nNow < m_timeoutValue) ? m_timeoutValue - nNow : 0;
+    }
+
+    Time Timeout::getDurationSince(Time startTime)
+    {
+        return startTime - getRemaining ();
+    }
+
+    Time Timeout::operator()() 
+    { 
+        return m_timeoutValue;
+    }
+    // ----------------------------------------------
+    // AtomicX Context methods implementation
+    // ----------------------------------------------
     void Context::setNextActiveThread()
     {
         thread* thread = nullptr;
@@ -46,7 +88,7 @@ namespace atomicx {
                 break;
             
             case state::WAIT:
-                if (thread->metrics.waitTimeout > 0
+                if (thread->metrics.waitTimeout() > 0
                     && m_nextThread->metrics.nextExecTime >= thread->metrics.nextExecTime)
                 {
                     m_nextThread = thread;
@@ -58,9 +100,9 @@ namespace atomicx {
         }
     }
 
-    void Context::sleepUntilTick(atomicx_time until)
+    void Context::sleepUntilTick(Time until)
     {
-        atomicx_time now = getTick();
+        Time now = getTick();
 
         if (now < until)
         {
@@ -141,7 +183,7 @@ namespace atomicx {
     // Thread Class Implementation
     // ----------------------------------------------
 
-   bool thread::yield(size_t arg, state cmd)
+   bool thread::yield(Timeout arg, state cmd)
     {
         (void)cmd; (void)arg;
         uint8_t stackPointer = 0xBB;
@@ -179,7 +221,7 @@ namespace atomicx {
         return true;
     }
 
-    bool thread::yieldUntil(atomicx_time timeout, size_t arg, state cmd)
+    bool thread::yieldUntil(Time timeout, size_t arg, state cmd)
     {   
         if(ctx.m_activeThread->metrics.nextExecTime + timeout <= getTick()) 
             return yield(arg, cmd);
@@ -227,7 +269,7 @@ namespace atomicx {
     }
 
     // Set Metrics data
-    bool thread::setNice(atomicx_time nice)
+    bool thread::setNice(Time nice)
     {
         metrics.nice = nice;
         return true;
@@ -237,8 +279,10 @@ namespace atomicx {
     // Wait / Notify methods implementation
     // ----------------------------------------------
 
-    bool thread::wait(RefId& refId, Tag& tag, atomicx_time timeout, uint8_t channel)
+    bool thread::wait(RefId& refId, Tag& tag, Timeout timeout, uint8_t channel)
     {
+        notify(refId, Notify::ONE, tag, timeout, ATIMICX_SYS_CHANEL);
+
         metrics.tag = tag;
         metrics.refId = &refId;
         metrics.waitChannel = channel;
@@ -249,18 +293,18 @@ namespace atomicx {
 
         if(yield(timeout, state::WAIT) && metrics.state == state::TIMEDOUT)
         {
-        return false;
+            return false;
         }
 
         return true;
     }
 
-    size_t thread::notify(RefId& refId, Notify type, Tag tag, atomicx_time timeout, uint8_t channel)
+    size_t thread::notify(RefId& refId, Notify type, Tag tag, Timeout timeout, uint8_t channel)
     {
         size_t count = 0;
 
-        (void)refId; (void)type; (void)tag; (void)timeout; (void)channel;
-
+        (void)timeout;
+        
         // TODO: Add a waiting for a wait call transaction.
         for(auto* i = begin(); i != nullptr; i = i->next)
         {
@@ -268,8 +312,8 @@ namespace atomicx {
             {
                 if(i->metrics.waitChannel == channel && i->metrics.refId == &refId)
                 {
-                    i->metrics.state = state::SLEEPING;
-                    i->metrics.nextExecTime = getTick() + timeout;
+                    i->metrics.state = state::NOW;
+                    i->metrics.nextExecTime = getTick();
                     i->metrics.tag = tag;
                     i->metrics.refId = nullptr;
                     count++;
@@ -282,4 +326,5 @@ namespace atomicx {
 
         return count;
     }
-}; // namespace atomicx 
+
+}; // namespace ax 

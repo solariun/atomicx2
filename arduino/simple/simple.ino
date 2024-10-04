@@ -20,21 +20,21 @@ size_t freeMemory() {
 
 constexpr int pin = 13; // Default LED pin on Arduino Nano
 
-static atomicx::Context localCtx;
+static ax::Context localCtx;
 
-atomicx_time atomicx::getTick(void)
+Time ax::getTick(void)
 {
     return millis();
 }
 
-void atomicx::sleepTicks(atomicx_time nSleep)
+void ax::sleepTicks(Time nSleep)
 {
     delay(nSleep);
 }
 
 char text[100];
 
-class testThread : public atomicx::thread
+class testThread : public ax::thread
 {
 public:
 
@@ -47,7 +47,7 @@ public:
 
         auto& metrics = getMetrics();
 
-        snprintf(text, sizeof(text), "%d: Count:%d, size:%d/%d bytes, CTX:%d, Thread:%d Free:%u", id, nCount++, metrics.stackSize, metrics.maxStackSize, sizeof(localCtx), sizeof(atomicx::thread), freeMemory());
+        snprintf(text, sizeof(text), "%d: Count:%d, size:%d/%d bytes, CTX:%d, Thread:%d Free:%u", id, nCount++, metrics.stackSize, metrics.maxStackSize, sizeof(localCtx), sizeof(ax::thread), freeMemory());
         Serial.println(text); Serial.flush();
     }
 
@@ -113,7 +113,7 @@ void loop() {
     testThread test5(5000);
     testThread test6(6000);
 
-    for(atomicx::thread* thread = test1.begin(); thread != nullptr; thread = (*thread)++)
+    for(ax::thread* thread = test1.begin(); thread != nullptr; thread = (*thread)++)
     {
         Serial.println("Thread " + String((size_t)thread) + " is in the thread pool");
     }
