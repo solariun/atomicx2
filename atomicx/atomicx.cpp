@@ -1,8 +1,36 @@
+/**
+ * @file atomicx.cpp
+ * @brief AtomicX Library Header
+ *
+ * This file contains the definitions and declarations for the AtomicX library.
+ * AtomicX is designed to provide a lightweight threading and synchronization
+ * mechanism suitable for small microprocessors, such as AVR, which have limited
+ * C++ standard library support. Also support for Arduino and other embedded
+ * systems and operating systems like FreeRTOS, windows, and Linux and macOS.
+ *
+ * @note The use of old-style includes and certain object handling methods is 
+ * due to the need for compatibility with simple and small microprocessors. 
+ * These microprocessors, like AVR, often do not support the full C++ Standard 
+ * Library (STL). To address this, some STL functionalities have been ported 
+ * to ensure synchronization support and compatibility with build systems that 
+ * do not support the full STL.
+ *
+ * @version 2.0.0.proto
+ * @date __TIMESTAMP__
+ *
+ * @section License
+ * Licensed under the MIT License.
+ *
+ * @section Author
+ * Gustavo Campos lgustavocampos@gmail.com
+ */
+
 #include "atomicx.h"
 
 #ifndef ARDUINO
 #include <iostream>
 #include <memory>
+#define LOGGING 0
 #else
 #include <Arduino.h>
 #endif
@@ -35,9 +63,12 @@ namespace ax {
         set (nTimeoutValue);
     }
 
+    Timeout::Timeout(TIME /*type*/) : m_timeoutValue (0)
+    {}
+
     void Timeout::set(Time nTimeoutValue)
     {
-        m_timeoutValue = nTimeoutValue ? nTimeoutValue + getTick() : 0;
+        m_timeoutValue = nTimeoutValue + getTick();
     }
 
     bool Timeout::isTimedOut()
@@ -61,6 +92,7 @@ namespace ax {
     { 
         return m_timeoutValue;
     }
+
     // ----------------------------------------------
     // AtomicX Context methods implementation
     // ----------------------------------------------
@@ -76,28 +108,41 @@ namespace ax {
 
             if (thread != nullptr) switch (thread->metrics.state)
             {
-            case state::READY:
-            case state::TIMEDOUT:
-            case state::NOW:
+            case STATE::READY:
                 m_nextThread = thread;
                 return;
                 
-            case state::SLEEPING:
+            case STATE::NOW:
+                m_nextThread->metrics.nextExecTime = m_switchTime;
+            case STATE::SLEEPING:
                 if (m_nextThread->metrics.nextExecTime >= thread->metrics.nextExecTime)
                     m_nextThread = thread;
                 break;
             
-            case state::WAIT:
-                if (thread->metrics.waitTimeout() > 0
-                    && m_nextThread->metrics.nextExecTime >= thread->metrics.nextExecTime)
+            case STATE::WAIT:
+                if (thread->metrics.waitTimeout() > 0 && thread->metrics.waitTimeout() < m_switchTime)
                 {
+                    thread->metrics.state = STATE::TIMEDOUT;
+                    thread->metrics.nextExecTime = 0;
                     m_nextThread = thread;
-                    break;
+                    return;
                 }
             default:
                 break;
             }
         }
+
+        if (m_nextThread->metrics.state == STATE::WAIT)
+        {
+            // detects if only timeoutless threads are 
+            // waiting, mark start() to finish
+            if (m_nextThread->metrics.waitTimeout() == 0)
+                m_nextThread = nullptr;
+            else
+                m_nextThread->metrics.state = STATE::TIMEDOUT;
+        }
+        else
+            m_nextThread->metrics.state = STATE::RUNNING;
     }
 
     void Context::sleepUntilTick(Time until)
@@ -116,7 +161,7 @@ namespace ax {
 
         m_nextThread = begin;
 
-        while(m_running && threadCount > 0)
+        while(m_nextThread != nullptr &&  m_running && threadCount > 0)
         {
             // for debugging
             //m_activeThread = m_activeThread == nullptr ? begin : m_activeThread->next;
@@ -130,11 +175,11 @@ namespace ax {
                 m_activeThread->stack.kernelPointer = &kernelPointer;
                 if (setjmp(m_activeThread->kernelRegs) == 0)
                 {
-                    if (m_activeThread->metrics.state == state::READY)
+                    if (m_activeThread->metrics.state == STATE::READY)
                     {
-                        m_activeThread->metrics.state = state::RUNNING;
+                        m_activeThread->metrics.state = STATE::RUNNING;
                         m_activeThread->run();
-                        m_activeThread->metrics.state = state::STOPPED;
+                        m_activeThread->metrics.state = STATE::STOPPED;
                     } else {
                         longjmp(m_activeThread->userRegs, 1);
                     }
@@ -179,13 +224,21 @@ namespace ax {
         threadCount--;
     }
 
+    thread& Context::operator()()
+    {
+        return *m_activeThread;
+    }
+
     // ----------------------------------------------
     // Thread Class Implementation
     // ----------------------------------------------
 
-   bool thread::yield(Timeout arg, state cmd)
+   bool thread::yield(Timeout till, STATE cmd)
     {
-        (void)cmd; (void)arg;
+        // adjusting the next execution time
+        if(cmd == STATE::NOW) till.set(0);
+        else if (!till() && cmd != STATE::WAIT) till.set(ctx.m_activeThread->metrics.nice);
+        
         uint8_t stackPointer = 0xBB;
                 
         // Calculate stack size and store are stack.size
@@ -205,26 +258,28 @@ namespace ax {
             
             ctx.m_activeThread->metrics.state = cmd;
 
-            ctx.m_activeThread->metrics.nextExecTime = getTick() + ctx.m_activeThread->metrics.nice;            
+            ctx.m_activeThread->metrics.nextExecTime = till();
 
             //ctx.setNextActiveThread();
+            ctx.m_switchTime = getTick();
 
             longjmp(ctx.m_activeThread->kernelRegs, 1);
         } else {
             memcpy(ctx.m_activeThread->stack.userPointer, ctx.m_activeThread->stack.vmemory, ctx.m_activeThread->metrics.stackSize);
         }
 
-        ctx.m_activeThread->metrics.state = state::READY;
-        ctx.sleepUntilTick(ctx.m_activeThread->metrics.nextExecTime);        
+        if (ctx.m_activeThread->metrics.state == STATE::RUNNING)
+            ctx.sleepUntilTick(ctx.m_activeThread->metrics.nextExecTime);
+
         ctx.m_activeThread->metrics.nextExecTime = getTick();
 
         return true;
     }
 
-    bool thread::yieldUntil(Time timeout, size_t arg, state cmd)
+    bool thread::yieldUntil(Time timeout, size_t till, STATE cmd)
     {   
         if(ctx.m_activeThread->metrics.nextExecTime + timeout <= getTick()) 
-            return yield(arg, cmd);
+            return yield(till, cmd);
 
         return true;
     }
@@ -238,7 +293,7 @@ namespace ax {
         metrics.nextExecTime = getTick();
 
         // Initialize the thread Context
-        metrics.state = state::READY;
+        metrics.state = STATE::READY;
     }
 
     thread::thread(size_t& vmemory, size_t stackSize)
@@ -281,38 +336,34 @@ namespace ax {
 
     bool thread::wait(RefId& refId, Tag& tag, Timeout timeout, uint8_t channel)
     {
-        notify(refId, Notify::ONE, tag, timeout, ATIMICX_SYS_CHANEL);
+        (void) notify(refId, Notify::ONE, {0,0}, 0, ATIMICX_SYS_CHANEL);
 
         metrics.tag = tag;
         metrics.refId = &refId;
         metrics.waitChannel = channel;
         metrics.waitTimeout = timeout;
 
-        // TODO: Add a notification for a wait call transaction.
-        //ctx.yield();
-
-        if(yield(timeout, state::WAIT) && metrics.state == state::TIMEDOUT)
+        if(!yield(timeout, STATE::WAIT) || metrics.state != STATE::TIMEDOUT)
         {
             return false;
         }
 
+        tag = metrics.tag;
+
         return true;
     }
 
-    size_t thread::notify(RefId& refId, Notify type, Tag tag, Timeout timeout, uint8_t channel)
+    size_t thread::doNotification(RefId& refId, Notify type, Tag& tag, uint8_t channel)
     {
         size_t count = 0;
 
-        (void)timeout;
-        
-        // TODO: Add a waiting for a wait call transaction.
         for(auto* i = begin(); i != nullptr; i = i->next)
         {
-            if (i->metrics.state == state::WAIT)
+            if (i->metrics.state == STATE::WAIT)
             {
                 if(i->metrics.waitChannel == channel && i->metrics.refId == &refId)
                 {
-                    i->metrics.state = state::NOW;
+                    i->metrics.state = STATE::NOW;
                     i->metrics.nextExecTime = getTick();
                     i->metrics.tag = tag;
                     i->metrics.refId = nullptr;
@@ -322,7 +373,21 @@ namespace ax {
             }
         }
 
-        yield();
+        return count;
+    }
+
+    size_t thread::notify(RefId& refId, Notify type, Tag tag, Timeout timeout, uint8_t channel)
+    {
+        size_t count = 0;
+        Tag sysTag = {0,0};
+
+        do 
+            count = doNotification(refId, type, tag, channel);
+        while(!count  
+              && timeout() > 0 && !timeout.isTimedOut()
+              && wait(refId, sysTag, timeout, ATIMICX_SYS_CHANEL));
+
+        if (!count || !yield(0, STATE::NOW)) return 0; 
 
         return count;
     }

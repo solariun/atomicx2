@@ -16,7 +16,7 @@
 ax::Time ax::getTick (void)
 {
 #ifndef FAKE_TIMER
-    usleep (20000);
+    usleep (10000); // 10ms slow dow to simulate a real system
     struct timeval tp;
     gettimeofday (&tp, NULL);
 
@@ -66,12 +66,13 @@ protected:
         ax::Tag tag;
 
         //while(yield())
-        while(wait(tranporVar, tag, 0, 1))
+        while(yield(10))
         {
-            auto metrics = getMetrics();
-            std::cout << "Thread " << id << ": Thread is running " << nCount++ << ", size: " << metrics.stackSize << "/" << metrics.maxStackSize << ", Thread: " << sizeof(ax::thread) << ", Context: " << sizeof(ax::ctx ) << ", Tag: " << tag.param << "/" << tag.value << std::endl;
+            std::cout << "Thread " << id << ": Thread is WAITING " << std::endl;
+            while (!wait(tranporVar, tag, 1000, 1)) std::cout << id << ": wait timedout..." << std::endl;
 
-            notify(tranporVar, ax::Notify::ONE, {id, nCount}, 0, 1);
+            auto metrics = getMetrics();
+            std::cout << "Thread " << id << ": Thread is running " << nCount++ << ", size: " << metrics.stackSize << "/" << metrics.maxStackSize << ", Thread: " << sizeof(ax::thread) << ", Context: " << sizeof(ax::ctx ) << ", Tag: " << tag.param << "/" << tag.value << ", state: " << (size_t) metrics.state << std::endl;
         }
 
         std::cout << "Thread " << id << " stopped" << std::endl;
@@ -124,21 +125,27 @@ protected:
             std::cout << "     Thread " << thread << " status: " << (size_t) metrics.state <<  ", size: " << metrics.stackSize << "/" << metrics.maxStackSize << std::endl;
         }
 
-        yield(0, ax::state::NOW);
+        yield(0, ax::STATE::NOW);
     }       
 
     bool run() override
     {
         std::cout << "Producer Thread is running" <<  ", CTX:" << &(ax::ctx) << std::endl;
         size_t nCount=start;
-        
+        size_t ret=0;
+
+        (void) start; (void) nCount; (void) ret;
+
         setNice(1000 * (id+1));
 
-        while(yield())
+        while(true)
         {
             printProcess();
 
-            notify(tranporVar, ax::Notify::ONE, {id, nCount}, 0, 1);
+            if(!(ret = notify(tranporVar, ax::Notify::ONE, {600, nCount}, ax::TIME::UNDERFINED, 1)))
+            {
+                std::cout << "PRODUCER Thread " << id << ": notify failed" << std::endl;
+            }
 
             auto metrics = getMetrics();
             for(size_t i=0; i<1000; i++)
@@ -147,7 +154,7 @@ protected:
                 metrics = metrics_;
             }
 
-            std::cout << "Producer Thread " << id << ": Thread is running " << nCount++ << ", size: " << metrics.stackSize << "/" << metrics.maxStackSize << std::endl;
+            std::cout << "Producer Thread " << id << ": Thread is running " << nCount++ << ", size: " << metrics.stackSize << "/" << metrics.maxStackSize << ", ret: " << ret << std::endl;
         }
 
         std::cout << "Thread " << id << " stopped" << std::endl;
@@ -187,11 +194,6 @@ int main()
     testThread test8(8000);
 
     testProducerThread test9(100000);
-
-    for(auto* thread = test1.begin(); thread != nullptr; thread = (*thread)++)
-    {
-        std::cout << "Thread " << thread << " is in the thread pool" << std::endl;
-    }
     
     ax::ctx.start();
 

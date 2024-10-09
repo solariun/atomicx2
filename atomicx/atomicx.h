@@ -1,3 +1,32 @@
+
+
+/**
+ * @file atomicx.h
+ * @brief AtomicX Library Header
+ *
+ * This file contains the definitions and declarations for the AtomicX library.
+ * AtomicX is designed to provide a lightweight threading and synchronization
+ * mechanism suitable for small microprocessors, such as AVR, which have limited
+ * C++ standard library support. Also support for Arduino and other embedded
+ * systems and operating systems like FreeRTOS, windows, and Linux and macOS.
+ *
+ * @note The use of old-style includes and certain object handling methods is 
+ * due to the need for compatibility with simple and small microprocessors. 
+ * These microprocessors, like AVR, often do not support the full C++ Standard 
+ * Library (STL). To address this, some STL functionalities have been ported 
+ * to ensure synchronization support and compatibility with build systems that 
+ * do not support the full STL.
+ *
+ * @version 2.0.0.proto
+ * @date __TIMESTAMP__
+ *
+ * @section License
+ * Licensed under the MIT License.
+ *
+ * @section Author
+ * Gustavo Campos lgustavocampos@gmail.com
+ */
+
 #ifndef ATOMICX_H
 #define ATOMICX_H
 
@@ -20,7 +49,7 @@
 
 namespace ax {
 
-#define ATIMICX_SYS_CHANEL 0
+#define ATIMICX_SYS_CHANEL 255
 
     class thread;
 
@@ -32,7 +61,7 @@ namespace ax {
     Time getTick();
     void sleepTicks(Time nsleep);
 
-    enum class state 
+    enum class STATE 
     {
         READY,
         RUNNING,
@@ -44,6 +73,11 @@ namespace ax {
         NOW
     };
 
+    enum class TIME
+    {
+        UNDERFINED,
+    };
+    
     enum class Notify
     {
         ONE,
@@ -63,8 +97,11 @@ namespace ax {
     class Timeout
     {
         public:
+
             Timeout ();
 
+            Timeout (TIME type);
+            
             Timeout (Time timeoutValue);
 
             void set(Time timeoutValue);
@@ -96,6 +133,8 @@ namespace ax {
 
         void RemoveThread(thread* thread);
 
+        thread& operator()();
+
     private:
         friend class thread;
 
@@ -108,6 +147,8 @@ namespace ax {
         bool m_running{false};
         thread *m_activeThread;
         thread *m_nextThread;
+
+        Time m_switchTime{0};
     };
 
     extern Context ctx;
@@ -125,7 +166,7 @@ namespace ax {
 
         struct Metrics
         {
-            state state{state::STOPPED};
+            STATE state{STATE::STOPPED};
 
             uint16_t poolId{0};
 
@@ -157,9 +198,11 @@ namespace ax {
 
         bool virtual StackOverflow() = 0;
  
+        size_t doNotification(RefId& refId, Notify type, Tag& tag, uint8_t channel);
+
     public:
-        bool yield(Timeout arg = 0, state cmd = state::SLEEPING);
-        bool yieldUntil(Time timeout, size_t arg = 0, state cmd = state::SLEEPING);
+        bool yield(Timeout arg = 0, STATE cmd = STATE::SLEEPING);
+        bool yieldUntil(Time timeout, size_t arg = 0, STATE cmd = STATE::SLEEPING);
 
         void defaultInit(size_t* vmemory, size_t maxSize);
 

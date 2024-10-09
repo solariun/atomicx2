@@ -21,14 +21,6 @@
 #//
 #// See LICENSE file for the complete information
 
-
-#
-# 'make depend' uses makedepend to automatically generate dependencies
-#               (dependencies are added to end of Makefile)
-# 'make'        build executable file 'mycc'
-# 'make clean'  removes all .o and executable files
-#
-
 # define the C compiler to use
 CC = g++
 
@@ -36,74 +28,109 @@ CC = g++
 #CFLAGS = -Ofast -Wall -g --std=c++11 -Wall -Wextra -Werror
 CFLAGS = -O0 -Wall -g --std=c++11 -Wall -Wextra -Werror
 
+# define the directory for atomicx
 ifndef CPX_DIR
 	CPX_DIR=./atomicx
 endif
 
 # define any directories containing header files other than /usr/include
-#
 INCLUDES = -I$(CPX_DIR)
 
 # define library paths in addition to /usr/lib
-#   if I wanted to include libraries not in /usr/lib I'd specify
-#   their path using -Lpath, something like:
 # LFLAGS = -L/home/newhall/lib  -L../lib
 
-# define any libraries to link into executable:
-#   if I want to link in libraries (libx.so or libx.a) I use the -llibname
-#   option, something like (this will link in libmylib.so and libm.so:
-#LIBS = -lmylib -lm
+# define any libraries to link into executable
+# LIBS = -lmylib -lm
 
 # define the C source files
 SRCS = $(wildcard *.cpp) $(wildcard $(CPX_DIR)/*.cpp)
 
 # define the C object files
-#
-# This uses Suffix Replacement within a macro:
-#   $(name:string1=string2)
-#         For each word in 'name' replace 'string1' with 'string2'
-# Below we are replacing the suffix .c of all words in the macro SRCS
-# with the .o suffix
-#
 OBJS = $(SRCS:.cpp=.o)
 
 # define the executable file
 MAIN = bin/demo_atomix.bin
 
-#
-# The following part of the makefile is generic; it can be used to
-# build any executable just by changing the definitions above and by
-# deleting dependencies appended to the file from 'make depend'
-#
+.PHONY: depend clean help
 
-.PHONY: depend clean
+# Default target to build the executable
+build: clean $(MAIN)
 
-all:  clean $(MAIN)
-	@echo  AtomicX binary $(MAIN) has beem compilled
-	if [ -n "$(DEBUG)" ]; then lldb ./$(MAIN); fi
-	if [ -n "$(RUN)" ]; then ./$(MAIN); fi
-	if [ -n "$(ARDUINO)" ]; then arduino-cli compile --upload --fqbn arduino:avr:nano --programmer usbasp arduino/simple; fi
+# Help message
+help:
+	@echo "Makefile Usage:"
+	@echo "  make build                - Build the executable file 'bin/demo_atomix.bin'"
+	@echo "  make clean                - Remove all .o and executable files"
+	@echo "  make debug                - Build and debug the executable file 'bin/demo_atomix.bin' using lldb"
+	@echo "  make run                  - Build and run the executable file 'bin/demo_atomix.bin'"
+	@echo "  make install_arduino_cli  - Install Arduino CLI and necessary cores"
+	@echo "  make nano_flash           - Compile and upload code to Arduino Nano"
+	@echo "  make nano                 - Compile and upload code to Arduino Nano using serial use SOURCE=/dev/ttyUSB#"
+	@echo "  make bootloader_nano      - Burn bootloader to Arduino Nano"
+	@echo "  make nodemcu              - Compile and upload code to NodeMCU ESP8266"
+	@echo "  make depend               - Generate dependencies using makedepend"
+	@echo "  make document             - Generate documentation using Doxygen"
 
+# Target to build and debug the executable
+debug: clean $(MAIN)
+	@echo  Debugging AtomicX binary $(MAIN)
+	lldb ./$(MAIN)
+
+# Target to build and run the executable
+run: clean $(MAIN)
+	@echo  Running AtomicX binary $(MAIN)
+	./$(MAIN)
+
+# Rule to link object files and create the executable
 $(MAIN): $(OBJS)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $(MAIN) $(OBJS) $(LFLAGS) $(LIBS)
 
-# this is a suffix replacement rule for building .o's from .c's
-# it uses automatic variables $<: the name of the prerequisite of
-# the rule(a .c file) and $@: the name of the target of the rule (a .o file)
-# (see the gnu make manual section about automatic variables)
+SOURCE ?= /dev/cu.usbserial-1120
+
+# Target to install Arduino CLI and necessary cores
+install_arduino_cli:
+	brew install arduino-cli
+	# Initialize arduino-cli
+	arduino-cli config add board_manager.additional_urls https://arduino.esp8266.com/stable/package_esp8266com_index.json  
+	arduino-cli config add board_manager.additional_urls https://github.com/stm32duino/BoardManagerFiles/raw/main/package_stmicroelectronics_index.json
+	arduino-cli core update-index
+	# Install arduino core avr sam esp8266 esp32 stm32
+	arduino-cli core install arduino:avr arduino:sam arduino:esp32 arduino:mbed esp8266:esp8266 esp32:esp32 STMicroelectronics:stm32
+
+# Target to compile and upload code to Arduino Nano
+nano_flash:
+	arduino-cli compile --upload  --fqbn arduino:avr:nano --programmer usbasp arduino/simple
+
+nano:
+	arduino-cli compile --upload --fqbn arduino:avr:nano --port "$(SOURCE)" arduino/simple
+	
+
+bootloader_nano:
+	arduino-cli burn-bootloader -b arduino:avr:nano -P usbasp
+
+# Target to compile and upload code to NodeMCU ESP8266
+nodemcu:
+	arduino-cli compile --upload --fqbn esp8266:esp8266:nodemcu arduino/simple
+
+# Rule to compile .cpp files into .o files
 .cpp.o:
 	$(CC) $(CFLAGS) $(INCLUDES) -c $<  -o $@
 
+# Target to clean up generated files
 clean:
 	$(RM) $(OBJS) *~ $(MAIN)
 
+# Target to generate dependencies
 depend: $(SRCS)
 	makedepend $(INCLUDES) $^
 
-$(info CPX_DIR:$(CPX_DIR))
-$(info SRCS:$(SRCS))
-# DO NOT DELETE THIS LINE -- make depend needs it
-
+# Target to generate documentation
 document:
 	@echo  AtomicX Generating documents
 	Doxygen
+
+# Print information about CPX_DIR and SRCS
+$(info CPX_DIR:$(CPX_DIR))
+$(info SRCS:$(SRCS))
+
+# DO NOT DELETE THIS LINE -- make depend needs it
