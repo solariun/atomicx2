@@ -66,10 +66,11 @@ protected:
         ax::Tag tag;
 
         //while(yield())
-        while(yield(10))
+        while(yield(1))
         {
             std::cout << "Thread " << id << ": Thread is WAITING " << std::endl;
-            while (!wait(tranporVar, tag, 1000, 1)) std::cout << id << ": wait timedout..." << std::endl;
+            //while (!wait(tranporVar, tag, 1000, 1)) std::cout << id << ": wait timedout..." << std::endl;
+            wait(tranporVar, tag, ax::TIME::UNDERFINED, 1);
 
             auto metrics = getMetrics();
             std::cout << "Thread " << id << ": Thread is running " << nCount++ << ", size: " << metrics.stackSize << "/" << metrics.maxStackSize << ", Thread: " << sizeof(ax::thread) << ", Context: " << sizeof(ax::ctx ) << ", Tag: " << tag.param << "/" << tag.value << ", state: " << (size_t) metrics.state << std::endl;

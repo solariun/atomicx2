@@ -66,15 +66,15 @@ public:
 protected:
     bool run() final
     {
-        //Serial.println("Thread is running");
+        Serial.println("Thread is running: " + String(id));
         size_t nCount=start;
         setNice(1000 * (id+1));
         ax::Tag tag;
 
         while(yield(50))
         {
-            fastBlink(id+1, nCount, tag);
             wait(refId, tag, ax::TIME::UNDERFINED, 0);
+            fastBlink(id+1, nCount, tag);
         }
 
         Serial.println("Thread " + String(id) + " stopped");
@@ -133,7 +133,10 @@ protected:
         while(true)
         {
             fastBlink(id+1, nCount);
-            notify(refId, ax::Notify::ONE, {id, nCount}, 1000, 0);
+            while (notify(refId, ax::Notify::ONE, {id, nCount}, 1000, 0) == false)
+            {
+                Serial.println("PRODUCER Thread " + String(id) + ": notify failed");
+            }
             fastBlink(id+1, nCount);
         }
 

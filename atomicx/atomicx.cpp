@@ -343,12 +343,17 @@ namespace ax {
         metrics.waitChannel = channel;
         metrics.waitTimeout = timeout;
 
-        if(!yield(timeout, STATE::WAIT) || metrics.state != STATE::TIMEDOUT)
+        if(!yield(timeout, STATE::WAIT) || metrics.state == STATE::TIMEDOUT)
         {
             return false;
         }
 
+        //std::cout << "WAIT: tag:" << tag.param << "/" << tag.value << std::endl;
+
         tag = metrics.tag;
+        metrics.refId = nullptr;
+        metrics.waitChannel = 0;
+        metrics.waitTimeout = 0;
 
         return true;
     }
@@ -366,8 +371,10 @@ namespace ax {
                     i->metrics.state = STATE::NOW;
                     i->metrics.nextExecTime = getTick();
                     i->metrics.tag = tag;
-                    i->metrics.refId = nullptr;
                     count++;
+
+                    //std::cout << "NOTIFY: tag:" << tag.param << "/" << tag.value << std::endl;
+
                     if(type == Notify::ONE) break;
                 }
             }
