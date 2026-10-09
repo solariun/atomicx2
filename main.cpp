@@ -37,166 +37,30 @@ void ax::sleepTicks(ax::Time nSleep)
 #endif
 }
 
-ax::RefId tranporVar=0;
+ax::thread_context myThreadContext;
 
-/**
- * @brief Test consumer thread
- */
-class testThread : public ax::thread
+class MyThreadItem : public ax::thread_item
 {
-public:
-    testThread(size_t start) : thread(VMEM(vmemory)), start(start)
-    {
-        id = counterId++;
-        std::cout << "Thread " << id << " created" << std::endl;
-        setNice(500);
-    }
+    public:
+        MyThreadItem(ax::thread_context& parent, size_t stackSize) : thread_item(parent, stackSize) {}
 
-    ~testThread() override
-    {
-    }
-
-protected:
-    bool run() override
-    {
-        std::cout << "Thread is running" <<  ", CTX:" << &ax::ctx << std::endl;
-        size_t nCount=start;
-        
-        setNice(1000 * (id+1));
-        ax::Tag tag;
-
-        //while(yield())
-        while(yield(1))
+        void run() override
         {
-            std::cout << "Thread " << id << ": Thread is WAITING " << std::endl;
-            //while (!wait(tranporVar, tag, 1000, 1)) std::cout << id << ": wait timedout..." << std::endl;
-            wait(tranporVar, tag, ax::TIME::UNDERFINED, 1);
-
-            auto metrics = getMetrics();
-            std::cout << "Thread " << id << ": Thread is running " << nCount++ << ", size: " << metrics.stackSize << "/" << metrics.maxStackSize << ", Thread: " << sizeof(ax::thread) << ", Context: " << sizeof(ax::ctx ) << ", Tag: " << tag.param << "/" << tag.value << ", state: " << (size_t) metrics.state << std::endl;
+            std::cout << "Running thread item at address: " << this << std::endl;
         }
-
-        std::cout << "Thread " << id << " stopped" << std::endl;
-
-        exit(1);
-
-        return true;
-    }
-
-    bool StackOverflow() override
-    {
-        return false;
-    }
-
-private:
-    size_t vmemory[1024];
-    size_t start;
-    static size_t counterId;
-    size_t id{0};
 };
-
-// Initialize the static counter
-size_t testThread::counterId = 0;
-
-/** 
- * @brief Test producer thread
-*/
-class testProducerThread : public ax::thread
-{
-public:
-    testProducerThread(size_t start) : thread(VMEM(vmemory)), start(start)
-    {
-        id = counterId++;
-        std::cout << "Thread " << id << " created" << std::endl;
-        setNice(100);
-    }
-
-    ~testProducerThread() override
-    {
-    }
-
-protected:
-    void printProcess()
-    {
-        std::cout << "Producer Thread is running" <<  ", CTX:" << &(ax::ctx) << std::endl;
-        
-        for(auto* thread = begin(); thread != nullptr; thread = (*thread)++)
-        {
-            auto metrics = thread->getMetrics();
-            std::cout << "     Thread " << thread << " status: " << (size_t) metrics.state <<  ", size: " << metrics.stackSize << "/" << metrics.maxStackSize << std::endl;
-        }
-
-        yield(0, ax::STATE::NOW);
-    }       
-
-    bool run() override
-    {
-        std::cout << "Producer Thread is running" <<  ", CTX:" << &(ax::ctx) << std::endl;
-        size_t nCount=start;
-        size_t ret=0;
-
-        (void) start; (void) nCount; (void) ret;
-
-        setNice(1000 * (id+1));
-
-        while(true)
-        {
-            printProcess();
-
-            if(!(ret = notify(tranporVar, ax::Notify::ONE, {600, nCount}, ax::TIME::UNDERFINED, 1)))
-            {
-                std::cout << "PRODUCER Thread " << id << ": notify failed" << std::endl;
-            }
-
-            auto metrics = getMetrics();
-            for(size_t i=0; i<1000; i++)
-            {
-                auto metrics_ = getMetrics();
-                metrics = metrics_;
-            }
-
-            std::cout << "Producer Thread " << id << ": Thread is running " << nCount++ << ", size: " << metrics.stackSize << "/" << metrics.maxStackSize << ", ret: " << ret << std::endl;
-        }
-
-        std::cout << "Thread " << id << " stopped" << std::endl;
-
-        exit(1);
-
-        return true;
-    }
-
-    bool StackOverflow() override
-    {
-        return false;
-    }
-
-private:
-    size_t vmemory[1024];
-    size_t start;
-    static size_t counterId;
-    size_t id{0};
-};
-
-// Initialize the static counter
-size_t testProducerThread::counterId = 0;
 
 int main() 
 {
-    testThread test1(0);
+    MyThreadItem myThreadItem_1(myThreadContext, 250);
+    MyThreadItem myThreadItem_2(myThreadContext, 250);
+    MyThreadItem myThreadItem_3(myThreadContext, 250);
+    MyThreadItem myThreadItem_4(myThreadContext, 250);
 
-    // Test the thread pool deletion
+    for(ax::auto_obj_list::item* current = myThreadContext.getHeadItem(); current; current = current->next)
     {
-        testThread test4(4000);
-        testThread test5(5000);
-        testThread test6(6000);
+        std::cout << "Thread item at address: " << current << std::endl;
     }
-
-    testThread test7(7000);
-    testThread test8(8000);
-
-    testProducerThread test9(100000);
-    
-    ax::ctx.start();
 
     return 0;
 }

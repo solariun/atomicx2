@@ -83,6 +83,7 @@ run: clean $(MAIN)
 
 # Rule to link object files and create the executable
 $(MAIN): $(OBJS)
+	@mkdir -p $(dir $(MAIN))
 	$(CC) $(CFLAGS) $(INCLUDES) -o $(MAIN) $(OBJS) $(LFLAGS) $(LIBS)
 
 SOURCE ?= /dev/cu.usbserial-1120

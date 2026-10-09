@@ -1,4 +1,4 @@
-I need fully-featured code and ready to build, of a generic class, totally written in c++11 with no stl api, only c++ language, that will be called StaticList that if derived, 
+I need fully-featured code and ready to build, of a generic class, totally written in c++11 with no stl api, only c++ language, that will be called AutoRegister that if derived, 
 on the derived class construction, it is added to a double-liked list implemented only using c++11 language and on derived destruction,
  it is removed from this list. It is also important that at any point, we can use a native foreach loop (range-based for loop). 
 
@@ -13,7 +13,7 @@ struct Node {
 
 // Generic static list class.
 template <typename T>
-class StaticList {
+class AutoRegister {
 private:
     // Head and tail nodes of the doubly linked list.
     Node* head;
@@ -21,10 +21,10 @@ private:
 
 public:
     // Constructor.
-    StaticList() : head(nullptr), tail(nullptr) {}
+    AutoRegister() : head(nullptr), tail(nullptr) {}
 
     // Destructor.
-    ~StaticList() {
+    ~AutoRegister() {
         // Remove all nodes from the list.
         while (head) {
             Node* next = head->next;
@@ -81,7 +81,7 @@ public:
 };
 
 // Derived class.
-class MyClass : public StaticList<MyClass> {
+class MyClass : public AutoRegister<MyClass> {
 public:
     // Constructor.
     MyClass() {
@@ -98,7 +98,7 @@ public:
 
 int main() {
     // Create a static list of MyClass objects.
-    StaticList<MyClass> list;
+    AutoRegister<MyClass> list;
 
     // Add some objects to the list.
     MyClass object1;

@@ -30,6 +30,8 @@
 #ifndef ATOMICX_H
 #define ATOMICX_H
 
+#include <iostream>
+
 #include <setjmp.h>
 
 #include <stdio.h>
@@ -61,171 +63,148 @@ namespace ax {
     Time getTick();
     void sleepTicks(Time nsleep);
 
-    enum class STATE 
+    enum class State
     {
         READY,
         RUNNING,
         SLEEPING,
-        STOPPED,
-        WAIT,
-        TIMEDOUT,
-        LOCKED,
-        NOW
+        TERMINATED
     };
 
-    enum class TIME
+    class auto_obj_list
     {
-        UNDERFINED,
-    };
-    
-    enum class Notify
-    {
-        ONE,
-        ALL
+        public:
+            struct item
+            {
+                item() = delete;
+                
+                item(auto_obj_list& parent) : parent(parent)
+                { 
+                    parent.add(this); 
+                    std::cout << "Added item to parent list at address: " << this << std::endl;
+                }
+                
+                ~item()
+                { 
+                    parent.remove(this);
+                    std::cout << "Removed item from parent list at address: " << this << std::endl;
+                }
+
+                item* next = nullptr;
+                item* prev = nullptr;
+                auto_obj_list& parent;
+            };
+            
+            bool isEmpty() const { return head == nullptr; }
+            
+            size_t count() const
+            {
+                size_t cnt = 0;
+                for (item* current = head; current; current = current->next)
+                    ++cnt;
+                return cnt;
+            }
+            
+            item* getHeadItem() const { return head; }
+            
+            item* getTailItem() const { return tail; }
+        protected:
+            bool add(item* newItem)
+            {
+                if (!newItem) return false;
+                newItem->next = nullptr;
+                newItem->prev = tail;
+                if (tail) tail->next = newItem;
+                tail = newItem;
+                if (!head) head = newItem;
+                return true;
+            }
+
+            bool remove(item* itemToRemove)
+            {
+                if (!itemToRemove) return false;
+                if (itemToRemove->prev) itemToRemove->prev->next = itemToRemove->next;
+                if (itemToRemove->next) itemToRemove->next->prev = itemToRemove->prev;
+                if (itemToRemove == head) head = itemToRemove->next;
+                if (itemToRemove == tail) tail = itemToRemove->prev;
+                itemToRemove->next = nullptr;
+                itemToRemove->prev = nullptr;
+                return true;
+            }
+
+        private:
+            item* head = nullptr;
+            item* tail = nullptr;
     };
 
-    struct Tag
-    {
-        size_t param;
-        size_t value;
-    };
-
-    /**
-     * @brief Timeout Check object
-     */
-
-    class Timeout
+    class thread_context : public auto_obj_list
     {
         public:
 
-            Timeout ();
+            bool start()
+            {
+                if (isEmpty()) return false;
+                running = true;
+                
+                item* current = getHeadItem();
 
-            Timeout (TIME type);
-            
-            Timeout (Time timeoutValue);
+                return true;
+            }
 
-            void set(Time timeoutValue);
+        protected:
+            void save (volatile size_t* stackPointer, size_t stackSize) volatile
+            {
+                (void)stackPointer;
+                (void)stackSize;
+                return;
+            }
 
-            bool isTimedOut();
+            void restore (volatile size_t* stackPointer, size_t stackSize) volatile
+            {
+                (void)stackPointer;
+                (void)stackSize;
+                return;
+            }
 
-            Time getRemaining();
-
-            Time getDurationSince(Time startTime);
-
-            Time operator ()();
-            
         private:
-            Time m_timeoutValue = 0;
+            bool running = false;
     };
-    
-    class Context
+
+    class thread_item : public auto_obj_list::item
     {
-    public:
-        friend class thread;
+        public:
+            thread_item(thread_context& parent, size_t stackSize) : item(parent), stackSize(stackSize * sizeof(size_t)) 
+            {
+                this->v_stackPointer = new volatile size_t[stackSize];
 
-        void setNextActiveThread();
+                if (!this->v_stackPointer) {
+                    std::cerr << "Failed to allocate stack for thread item." << std::endl;
+                    stackSize = 0;
+                } else {
+                std::cout << ">>> Allocated stack for thread item at address: " << this->v_stackPointer << " with size: " << stackSize << std::endl;
+                }
+            }
 
-        void sleepUntilTick(Time nSleep);
-        
-        int start();
+            ~thread_item()
+            {
+                delete[] v_stackPointer;
+                v_stackPointer = nullptr;
+            }
 
-        void AddThread(thread* thread);
+            virtual void run() = 0; 
+             
+        protected:
+            volatile size_t* v_stackPointer =  nullptr; // virtual stack memory pointer
+            volatile size_t* l_stackPointer =  nullptr; // local stack memory pointer
 
-        void RemoveThread(thread* thread);
+            size_t stackSize = 0;
+            
+            State state = State::READY;
 
-        thread& operator()();
+        private:
 
-    private:
-        friend class thread;
-
-        bool CheckAllThreadsStopped();
-
-        thread* begin{nullptr};
-        thread* last{nullptr};
-        size_t threadCount{0};
-
-        bool m_running{false};
-        thread *m_activeThread;
-        thread *m_nextThread;
-
-        Time m_switchTime{0};
     };
 
-    extern Context ctx;
-
-    // ----------------------------------------------
-    // Thread class
-    // ----------------------------------------------
-    class thread
-    {
-    private:
-        friend class Context;
-
-        jmp_buf userRegs;
-        jmp_buf kernelRegs;
-
-        struct Metrics
-        {
-            STATE state{STATE::STOPPED};
-
-            uint16_t poolId{0};
-
-            Time nice{0};
-            Time nextExecTime{0};
-
-            size_t maxStackSize{0};
-            size_t stackSize{0};
-
-            Tag tag{0, 0};
-            RefId* refId{nullptr};
-            uint8_t waitChannel{0};
-            Timeout waitTimeout{0};
-        } metrics;
-
-        struct
-        {
-            uint8_t *kernelPointer{nullptr};
-            uint8_t *userPointer{nullptr};
-            size_t *vmemory;
-        } stack;
-
-        // Node control
-        thread* next{nullptr};
-        thread* prev{nullptr};
-
-    protected:
-        bool virtual run() = 0;
-
-        bool virtual StackOverflow() = 0;
- 
-        size_t doNotification(RefId& refId, Notify type, Tag& tag, uint8_t channel);
-
-    public:
-        bool yield(Timeout arg = 0, STATE cmd = STATE::SLEEPING);
-        bool yieldUntil(Time timeout, size_t arg = 0, STATE cmd = STATE::SLEEPING);
-
-        void defaultInit(size_t* vmemory, size_t maxSize);
-
-        thread(size_t& vmemory, size_t stackSize);
-
-        virtual ~thread();
-
-        thread* operator++(int);
- 
-        thread* begin();
- 
-        // Get metrics data
-        const Metrics& getMetrics();
- 
-        // Set Metrics data
-        bool setNice(Time nice);
-
-        // Wait and notify
-        bool wait(RefId& refId, Tag& tag, Timeout timeout, uint8_t channel);
-
-        size_t notify(RefId& refId, Notify type, Tag tag, Timeout timeout, uint8_t channel);
-    };
-}; // namespace ax
-
+} // namespace ax   
 
 #endif // ATOMICX_H
