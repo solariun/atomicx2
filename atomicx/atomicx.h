@@ -55,13 +55,13 @@ namespace ax {
 
     class thread;
 
-    using Time = uint32_t;
-    using RefId = size_t;
+    using time = uint32_t;
+    using ref = size_t;
 
     // Those functions MUST be 
     // implemented by the user
-    Time getTick();
-    void sleepTicks(Time nsleep);
+    time getTick();
+    void sleepTicks(time nsleep);
 
     enum class State
     {
@@ -90,6 +90,12 @@ namespace ax {
                     std::cout << "Removed item from parent list at address: " << this << std::endl;
                 }
 
+                item* getNextItem(item* current) const { return current ? current->next : nullptr; }
+                item* getPrevItem(item* current) const { return current ? current->prev : nullptr; }
+
+            protected:
+                friend class auto_obj_list;
+
                 item* next = nullptr;
                 item* prev = nullptr;
                 auto_obj_list& parent;
@@ -104,7 +110,7 @@ namespace ax {
                     ++cnt;
                 return cnt;
             }
-            
+
             item* getHeadItem() const { return head; }
             
             item* getTailItem() const { return tail; }
@@ -148,6 +154,8 @@ namespace ax {
                 
                 item* current = getHeadItem();
 
+                (void)current;
+
                 return true;
             }
 
@@ -165,6 +173,8 @@ namespace ax {
                 (void)stackSize;
                 return;
             }
+        protected:
+            friend class thread_item;
 
         private:
             bool running = false;
@@ -192,13 +202,18 @@ namespace ax {
             }
 
             virtual void run() = 0; 
-             
+            
+
         protected:
             volatile size_t* v_stackPointer =  nullptr; // virtual stack memory pointer
             volatile size_t* l_stackPointer =  nullptr; // local stack memory pointer
 
             size_t stackSize = 0;
             
+            struct State
+            {
+                time
+            } state
             State state = State::READY;
 
         private:

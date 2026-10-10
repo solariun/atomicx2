@@ -21,19 +21,19 @@ size_t freeMemory() {
 
 constexpr int pin = 13; // Default LED pin on Arduino Nano
 
-ax::Time ax::getTick(void)
+ax::time ax::getTick(void)
 {
     return millis();
 }
 
-void ax::sleepTicks(ax::Time nSleep)
+void ax::sleepTicks(ax::time nSleep)
 {
     delay(nSleep);
 }
 
 char text[100];
 
-ax::RefId refId;
+ax::ref refId;
 
 class testThread : public ax::thread
 {

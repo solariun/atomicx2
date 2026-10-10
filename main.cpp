@@ -13,14 +13,14 @@
 
 #include "atomicx/atomicx.h"
 
-ax::Time ax::getTick (void)
+ax::time ax::getTick (void)
 {
 #ifndef FAKE_TIMER
     usleep (10000); // 10ms slow dow to simulate a real system
     struct timeval tp;
     gettimeofday (&tp, NULL);
 
-    return (Time)tp.tv_sec * 1000 + tp.tv_usec / 1000;
+    return (time)tp.tv_sec * 1000 + tp.tv_usec / 1000;
 #else
     nCounter++;
 
@@ -28,7 +28,7 @@ ax::Time ax::getTick (void)
 #endif
 }
 
-void ax::sleepTicks(ax::Time nSleep)
+void ax::sleepTicks(ax::time nSleep)
 {
 #ifndef FAKE_TIMER
     usleep ((useconds_t)nSleep * 1000);
@@ -57,7 +57,7 @@ int main()
     MyThreadItem myThreadItem_3(myThreadContext, 250);
     MyThreadItem myThreadItem_4(myThreadContext, 250);
 
-    for(ax::auto_obj_list::item* current = myThreadContext.getHeadItem(); current; current = current->next)
+    for(ax::auto_obj_list::item* current = myThreadContext.getHeadItem(); current; current = current->getNextItem(current))
     {
         std::cout << "Thread item at address: " << current << std::endl;
     }
