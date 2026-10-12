@@ -114,6 +114,70 @@ namespace ax {
             item* getHeadItem() const { return head; }
             
             item* getTailItem() const { return tail; }
+
+            /**
+             * @brief Sorts the list in place using a bottom-up merge sort.
+             *
+             * Merge sort is stable, O(n log n) in all cases, needs O(1) extra
+             * memory on linked lists and no recursion (safe for small MCUs).
+             * No STL is used.
+             *
+             * @tparam Compare Callable type (functor, lambda or function pointer)
+             *         supplied by the caller, invoked as `bool cmp(const item& a, const item& b)`.
+             *         Must return true when @p a must come before @p b.
+             * @param cmp Comparison callable. Inlined by the compiler (no virtual
+             *        calls, no std::function).
+             */
+            template <typename Compare>
+            void sort(Compare cmp)
+            {
+                if (!head || !head->next) return;
+
+                size_t total = count();
+
+                for (size_t width = 1; width < total; width <<= 1)
+                {
+                    item* cur = head;
+                    item* newHead = nullptr;
+                    item* newTail = nullptr;
+
+                    while (cur)
+                    {
+                        // Split two runs of up to 'width' items
+                        item* left = cur;
+                        item* right = left;
+                        for (size_t i = 0; i < width && right; ++i) right = right->next;
+                        item* rest = right;
+                        for (size_t i = 0; i < width && rest; ++i) rest = rest->next;
+
+                        // Merge runs: left [left..right), right [right..rest)
+                        item* lend = right;
+                        item* rend = rest;
+                        while (left != lend || right != rend)
+                        {
+                            item* pick;
+                            if (left == lend)       { pick = right; right = right->next; }
+                            else if (right == rend) { pick = left;  left  = left->next;  }
+                            else if (cmp(*right, *left)) { pick = right; right = right->next; }
+                            else                    { pick = left;  left  = left->next;  }
+
+                            if (newTail) newTail->next = pick; else newHead = pick;
+                            newTail = pick;
+                        }
+                        cur = rest;
+                    }
+
+                    newTail->next = nullptr;
+                    head = newHead;
+                }
+
+                // Rebuild prev links and tail
+                item* p = nullptr;
+                for (item* c = head; c; c = c->next) { c->prev = p; p = c; }
+                tail = p;
+            }
+
+            
         protected:
             bool add(item* newItem)
             {
@@ -185,36 +249,39 @@ namespace ax {
         public:
             thread_item(thread_context& parent, size_t stackSize) : item(parent), stackSize(stackSize * sizeof(size_t)) 
             {
-                this->v_stackPointer = new volatile size_t[stackSize];
+                this->_v_stackPointer = new volatile size_t[stackSize];
 
-                if (!this->v_stackPointer) {
+                if (!this->_v_stackPointer) {
                     std::cerr << "Failed to allocate stack for thread item." << std::endl;
                     stackSize = 0;
                 } else {
-                std::cout << ">>> Allocated stack for thread item at address: " << this->v_stackPointer << " with size: " << stackSize << std::endl;
+                std::cout << ">>> Allocated stack for thread item at address: " << this->_v_stackPointer << " with size: " << stackSize << std::endl;
                 }
             }
 
             ~thread_item()
             {
-                delete[] v_stackPointer;
-                v_stackPointer = nullptr;
+                delete[] _v_stackPointer;
+                _v_stackPointer = nullptr;
             }
 
             virtual void run() = 0; 
             
 
         protected:
-            volatile size_t* v_stackPointer =  nullptr; // virtual stack memory pointer
-            volatile size_t* l_stackPointer =  nullptr; // local stack memory pointer
+            volatile size_t* _v_stackPointer =  nullptr; // virtual stack memory pointer
+            volatile size_t* _l_stackPointer =  nullptr; // local stack memory pointer
 
-            size_t stackSize = 0;
+            volatile size_t stackSize = 0;
             
-            struct State
+            struct st_data
             {
-                time
-            } state
-            State state = State::READY;
+                time lastRunTime;
+                time nice;
+                State state = State::READY;
+            };
+
+            volatile st_data _data;
 
         private:
 

@@ -28,7 +28,7 @@ ax::time ax::getTick (void)
 #endif
 }
 
-void ax::sleepTicks(ax::time nSleep)
+void ax::sleepTicks(ax::time  nSleep)
 {
 #ifndef FAKE_TIMER
     usleep ((useconds_t)nSleep * 1000);
