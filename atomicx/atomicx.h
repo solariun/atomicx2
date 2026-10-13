@@ -78,42 +78,28 @@ namespace ax {
             {
                 item() = delete;
                 
-                item(auto_obj_list& parent) : parent(parent)
-                { 
-                    parent.add(this); 
-                    std::cout << "Added item to parent list at address: " << this << std::endl;
-                }
+                item(auto_obj_list& parent);
                 
-                ~item()
-                { 
-                    parent.remove(this);
-                    std::cout << "Removed item from parent list at address: " << this << std::endl;
-                }
+                ~item();
 
-                item* getNextItem(item* current) const { return current ? current->next : nullptr; }
-                item* getPrevItem(item* current) const { return current ? current->prev : nullptr; }
+                item* getNextItem(item* current) const;
+                item* getPrevItem(item* current) const;
 
             protected:
                 friend class auto_obj_list;
 
                 item* next = nullptr;
                 item* prev = nullptr;
-                auto_obj_list& parent;
+                volatile auto_obj_list& parent;
             };
             
-            bool isEmpty() const { return head == nullptr; }
+            bool isEmpty() const;
             
-            size_t count() const
-            {
-                size_t cnt = 0;
-                for (item* current = head; current; current = current->next)
-                    ++cnt;
-                return cnt;
-            }
+            size_t count() const;
 
-            item* getHeadItem() const { return head; }
+            item* getHeadItem() const;
             
-            item* getTailItem() const { return tail; }
+            item* getTailItem() const;
 
             /**
              * @brief Sorts the list in place using a bottom-up merge sort.
@@ -179,96 +165,35 @@ namespace ax {
 
             
         protected:
-            bool add(item* newItem)
-            {
-                if (!newItem) return false;
-                newItem->next = nullptr;
-                newItem->prev = tail;
-                if (tail) tail->next = newItem;
-                tail = newItem;
-                if (!head) head = newItem;
-                return true;
-            }
+            bool add(item* newItem) volatile;
 
-            bool remove(item* itemToRemove)
-            {
-                if (!itemToRemove) return false;
-                if (itemToRemove->prev) itemToRemove->prev->next = itemToRemove->next;
-                if (itemToRemove->next) itemToRemove->next->prev = itemToRemove->prev;
-                if (itemToRemove == head) head = itemToRemove->next;
-                if (itemToRemove == tail) tail = itemToRemove->prev;
-                itemToRemove->next = nullptr;
-                itemToRemove->prev = nullptr;
-                return true;
-            }
+            bool remove(item* itemToRemove) volatile;
 
         private:
             item* head = nullptr;
             item* tail = nullptr;
     };
 
-    class thread_context : public auto_obj_list
-    {
-        public:
+    class thread_context;
 
-            bool start()
-            {
-                if (isEmpty()) return false;
-                running = true;
-                
-                item* current = getHeadItem();
-
-                (void)current;
-
-                return true;
-            }
-
-        protected:
-            void save (volatile size_t* stackPointer, size_t stackSize) volatile
-            {
-                (void)stackPointer;
-                (void)stackSize;
-                return;
-            }
-
-            void restore (volatile size_t* stackPointer, size_t stackSize) volatile
-            {
-                (void)stackPointer;
-                (void)stackSize;
-                return;
-            }
-        protected:
-            friend class thread_item;
-
-        private:
-            bool running = false;
-    };
-
+    // Thread item represents an individual thread with its own stack and execution context.
     class thread_item : public auto_obj_list::item
     {
         public:
-            thread_item(thread_context& parent, size_t stackSize) : item(parent), stackSize(stackSize * sizeof(size_t)) 
-            {
-                this->_v_stackPointer = new volatile size_t[stackSize];
+            thread_item(thread_context& parent, size_t stack_size);
 
-                if (!this->_v_stackPointer) {
-                    std::cerr << "Failed to allocate stack for thread item." << std::endl;
-                    stackSize = 0;
-                } else {
-                std::cout << ">>> Allocated stack for thread item at address: " << this->_v_stackPointer << " with size: " << stackSize << std::endl;
-                }
-            }
-
-            ~thread_item()
-            {
-                delete[] _v_stackPointer;
-                _v_stackPointer = nullptr;
-            }
+            ~thread_item();
 
             virtual void run() = 0; 
             
 
         protected:
+
+
+        private:
+
+            void yield();
+
             volatile size_t* _v_stackPointer =  nullptr; // virtual stack memory pointer
             volatile size_t* _l_stackPointer =  nullptr; // local stack memory pointer
 
@@ -283,9 +208,30 @@ namespace ax {
 
             volatile st_data _data;
 
-        private:
+            volatile thread_context& _parent;
 
     };
+
+    class thread_context : public auto_obj_list
+    {
+        public:
+
+            /* BY DESIGN would never return. If so the system failed to start threads*/
+            bool start();
+
+        protected:
+            void save (volatile size_t* stackPointer, size_t stackSize) volatile;
+
+            void restore (volatile size_t* stackPointer, size_t stackSize) volatile;
+
+
+        protected:
+            friend class thread_item;
+
+        private:
+            bool running = false;
+    };
+
 
 } // namespace ax   
 
