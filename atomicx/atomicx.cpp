@@ -104,14 +104,14 @@ namespace ax {
         return true;
     }
 
-    thread_item::thread_item(thread_context& parent, size_t stack_size) : item(parent), _v_stackPointer(new (std::nothrow) volatile size_t[stack_size]), stackSize(stack_size * sizeof(size_t)), _parent(parent) 
+    thread_item::thread_item(thread_context& parent, size_t stack_size) : item(parent), _v_stackPointer(new (std::nothrow) volatile char[stack_size]), stackSize(stack_size * sizeof(size_t)), _parent(parent) 
     {
 
         if (!this->_v_stackPointer) {
             std::cerr << "Failed to allocate stack for thread item." << std::endl;
             stackSize = 0;
         } else {
-        std::cout << ">>> Allocated stack for thread item at address: " << this->_v_stackPointer << " with size: " << stack_size << std::endl;
+            std::cout << ">>> Allocated stack for thread item at address: " << this->_v_stackPointer << " with size: " << stack_size << std::endl;
         }
     }
 
@@ -140,26 +140,26 @@ namespace ax {
     }
 
     void thread_item::dump_threads() volatile
-    {
-        thread_context& context = (thread_context&) _parent;
-        
-        const thread_item* current = static_cast<const thread_item*>(context.getHeadItem());
+    {   
+        const thread_item* current = static_cast<const thread_item*>(_parent.getHeadItem());
         while (current)
         {
-            std::cout << "Thread at address: " << current << " State: " << static_cast<int>(current->_data.state) << std::endl;
+            std::cout << "[DUMP] Thread at address: " << current << " State: " << static_cast<int>(current->_data.state) << std::endl;
             current = static_cast<const thread_item*>(current->next);
         }
     }
 
     void thread_item::yield()
     {
-        _data.tm_now = getTick();
+        volatile char dummy = 0xAA;
 
+        _l_stackPointer =  &dummy;
+
+        _data.tm_now = getTick();
         // Implementation of yield can be added here
         _parent.sort(compare, this);
         dump_threads();
 
-        (void) _l_stackPointer;
         return;
     }
 

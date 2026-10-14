@@ -63,6 +63,8 @@ int main()
         std::cout << "Thread item at address: " << current << std::endl;
     }
 
+    myThreadContext.start();
+    
     return 0;
 }
 

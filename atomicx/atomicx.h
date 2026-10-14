@@ -205,14 +205,14 @@ namespace ax {
 
         private:
 
-            volatile size_t* _v_stackPointer =  nullptr; // virtual stack memory pointer
-            volatile size_t* _l_stackPointer =  nullptr; // local stack memory pointer
+            volatile char* _v_stackPointer =  nullptr; // virtual stack memory pointer
+            volatile char* _l_stackPointer =  nullptr; // local stack memory pointer
 
             volatile size_t stackSize = 0;
 
             volatile st_data _data;
 
-            volatile thread_context& _parent;
+            thread_context& _parent;
 
     };
 
