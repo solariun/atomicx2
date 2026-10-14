@@ -46,7 +46,8 @@ class MyThreadItem : public ax::thread_item
 
         void run() override
         {
-            std::cout << "Running thread item at address: " << this << std::endl;
+            // std::cout << "Running thread item at address: " << this << std::endl;
+            yield();
         }
 };
 

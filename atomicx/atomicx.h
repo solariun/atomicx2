@@ -68,6 +68,7 @@ namespace ax {
         READY,
         RUNNING,
         SLEEPING,
+        WAITING,
         TERMINATED
     };
 
@@ -95,7 +96,7 @@ namespace ax {
             
             bool isEmpty() const;
             
-            size_t count() const;
+            size_t count() const volatile;
 
             item* getHeadItem() const;
             
@@ -114,8 +115,8 @@ namespace ax {
              * @param cmp Comparison callable. Inlined by the compiler (no virtual
              *        calls, no std::function).
              */
-            template <typename Compare>
-            void sort(Compare cmp)
+            template <typename Compare, typename Data>
+            void sort(Compare cmp, Data data) volatile
             {
                 if (!head || !head->next) return;
 
@@ -144,7 +145,7 @@ namespace ax {
                             item* pick;
                             if (left == lend)       { pick = right; right = right->next; }
                             else if (right == rend) { pick = left;  left  = left->next;  }
-                            else if (cmp(*right, *left)) { pick = right; right = right->next; }
+                            else if (cmp(*right, *left, data)) { pick = right; right = right->next; }
                             else                    { pick = left;  left  = left->next;  }
 
                             if (newTail) newTail->next = pick; else newHead = pick;
@@ -180,31 +181,34 @@ namespace ax {
     class thread_item : public auto_obj_list::item
     {
         public:
+            struct st_data
+            {
+                time tm_now = 0;
+                time lastRunTime = 0;
+                time nice = 1;
+                State state = State::READY;
+            };
+
             thread_item(thread_context& parent, size_t stack_size);
 
             ~thread_item();
 
+            static bool compare(const item& a, const item& b, const thread_item* data);
+
             virtual void run() = 0; 
-            
+
+            void dump_threads() volatile;
 
         protected:
-
+            
+            void yield();
 
         private:
-
-            void yield();
 
             volatile size_t* _v_stackPointer =  nullptr; // virtual stack memory pointer
             volatile size_t* _l_stackPointer =  nullptr; // local stack memory pointer
 
             volatile size_t stackSize = 0;
-            
-            struct st_data
-            {
-                time lastRunTime;
-                time nice;
-                State state = State::READY;
-            };
 
             volatile st_data _data;
 
@@ -227,7 +231,7 @@ namespace ax {
 
         protected:
             friend class thread_item;
-
+    
         private:
             bool running = false;
     };

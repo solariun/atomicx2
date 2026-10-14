@@ -49,6 +49,9 @@
 
 namespace ax {
 
+    // Ticks wrap around: a time is due while now is less than half the tick range past it
+    static const time k_tick_half_range = (time)(((time)~(time)0 >> 1) + 1);
+
     auto_obj_list::item::item(auto_obj_list& parent) : parent(parent)
     { 
         parent.add(this); 
@@ -66,7 +69,7 @@ namespace ax {
 
     bool auto_obj_list::isEmpty() const { return head == nullptr; }
 
-    size_t auto_obj_list::count() const
+    size_t auto_obj_list::count() const volatile
     {
         size_t cnt = 0;
         for (item* current = head; current; current = current->next)
@@ -118,9 +121,45 @@ namespace ax {
         _v_stackPointer = nullptr;
     }
 
+    bool thread_item::compare(const item& a, const item& b, const thread_item* data)
+    {
+        const thread_item& first = static_cast<const thread_item&>(a);
+        const thread_item& second = static_cast<const thread_item&>(b);
+
+        bool first_ready = first._data.state == State::READY;
+        bool second_ready = second._data.state == State::READY;
+
+        if (first_ready != second_ready) return first_ready;
+
+        time now = data->_data.tm_now;
+
+        bool first_due = (time)(now - (first._data.lastRunTime + first._data.nice)) < k_tick_half_range;
+        bool second_due = (time)(now - (second._data.lastRunTime + second._data.nice)) < k_tick_half_range;
+
+        return first_due && !second_due;
+    }
+
+    void thread_item::dump_threads() volatile
+    {
+        thread_context& context = (thread_context&) _parent;
+        
+        const thread_item* current = static_cast<const thread_item*>(context.getHeadItem());
+        while (current)
+        {
+            std::cout << "Thread at address: " << current << " State: " << static_cast<int>(current->_data.state) << std::endl;
+            current = static_cast<const thread_item*>(current->next);
+        }
+    }
+
     void thread_item::yield()
     {
+        _data.tm_now = getTick();
+
         // Implementation of yield can be added here
+        _parent.sort(compare, this);
+        dump_threads();
+
+        (void) _l_stackPointer;
         return;
     }
 
