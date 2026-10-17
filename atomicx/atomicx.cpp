@@ -142,6 +142,18 @@ namespace ax {
     void thread_item::dump_threads() volatile
     {   
         const thread_item* current = static_cast<const thread_item*>(_parent.getHeadItem());
+        
+        std::cout << "[DUMP] Yielding thread at address: " << (const void*)this << std::endl;
+        std::cout << "[DUMP] Stack pointer set to: " << (const void*)_l_stackPointer << std::endl;
+        std::cout << "[DUMP] Virtual stack pointer: " <<(const void*)(_v_stackPointer) << std::endl;
+        std::cout << "[DUMP] Current time: " << _data.tm_now << std::endl;
+        std::cout << "[DUMP] Nice value: " << _data.nice << std::endl;
+        std::cout << "[DUMP] Last run time: " << _data.lastRunTime << std::endl;
+        std::cout << "[DUMP] State: " << static_cast<int>(_data.state) << std::endl;
+        std::cout << "[DUMP] Parent context address: " << &_parent << std::endl;
+        std::cout << "[DUMP] Head item address: " << _parent.getHeadItem() << std::endl;
+        std::cout << "[DUMP] Tail item address: " << _parent.getTailItem() << std::endl;
+        std::cout << "[DUMP] Dumping all threads in the parent context..." << std::endl;
         while (current)
         {
             std::cout << "[DUMP] Thread at address: " << current << " State: " << static_cast<int>(current->_data.state) << std::endl;
@@ -156,8 +168,15 @@ namespace ax {
         _l_stackPointer =  &dummy;
 
         _data.tm_now = getTick();
+        std::cout << "[YIELD] Dumping threads before sort..." << std::endl;
+        dump_threads();
+
         // Implementation of yield can be added here
+        std::cout << "[YIELD] Sorting threads..." << std::endl;
         _parent.sort(compare, this);
+        std::cout << "[YIELD] Threads sorted." << std::endl;
+        
+        std::cout << "[YIELD] Dumping threads after sort..." << std::endl;
         dump_threads();
 
         return;
