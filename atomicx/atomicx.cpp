@@ -104,7 +104,7 @@ namespace ax {
         return true;
     }
 
-    thread_item::thread_item(thread_context& parent, size_t stack_size) : item(parent), _v_stackPointer(new (std::nothrow) volatile char[stack_size]), stackSize(stack_size * sizeof(size_t)), _parent(parent) 
+    thread_item::thread_item(thread_context& parent, size_t stack_size) : item(parent), _v_stackPointer(new (std::nothrow) volatile char[stack_size]), stackSize(stack_size * sizeof(size_t)), _context(parent) 
     {
 
         if (!this->_v_stackPointer) {
@@ -126,10 +126,10 @@ namespace ax {
         const thread_item& first = static_cast<const thread_item&>(a);
         const thread_item& second = static_cast<const thread_item&>(b);
 
-        bool first_ready = first._data.state == State::READY;
-        bool second_ready = second._data.state == State::READY;
+        bool first_ready = first._data.state == State::READY || first._data.state == State::NOW;
+        bool second_ready = second._data.state == State::READY || second._data.state == State::NOW;
 
-        if (first_ready != second_ready) return first_ready;
+        if (first_ready || second_ready) return true;
 
         time now = data->_data.tm_now;
 
@@ -141,18 +141,18 @@ namespace ax {
 
     void thread_item::dump_threads() volatile
     {   
-        const thread_item* current = static_cast<const thread_item*>(_parent.getHeadItem());
+        const thread_item* current = static_cast<const thread_item*>(_context.getHeadItem());
         
         std::cout << "[DUMP] Yielding thread at address: " << (const void*)this << std::endl;
-        std::cout << "[DUMP] Stack pointer set to: " << (const void*)_l_stackPointer << std::endl;
+        std::cout << "[DUMP] Stack pointer set to: " << (const void*)_stk_bottom << std::endl;
         std::cout << "[DUMP] Virtual stack pointer: " <<(const void*)(_v_stackPointer) << std::endl;
         std::cout << "[DUMP] Current time: " << _data.tm_now << std::endl;
         std::cout << "[DUMP] Nice value: " << _data.nice << std::endl;
         std::cout << "[DUMP] Last run time: " << _data.lastRunTime << std::endl;
         std::cout << "[DUMP] State: " << static_cast<int>(_data.state) << std::endl;
-        std::cout << "[DUMP] Parent context address: " << &_parent << std::endl;
-        std::cout << "[DUMP] Head item address: " << _parent.getHeadItem() << std::endl;
-        std::cout << "[DUMP] Tail item address: " << _parent.getTailItem() << std::endl;
+        std::cout << "[DUMP] Parent context address: " << &_context << std::endl;
+        std::cout << "[DUMP] Head item address: " << _context.getHeadItem() << std::endl;
+        std::cout << "[DUMP] Tail item address: " << _context.getTailItem() << std::endl;
         std::cout << "[DUMP] Dumping all threads in the parent context..." << std::endl;
         while (current)
         {
@@ -163,21 +163,53 @@ namespace ax {
 
     void thread_item::yield()
     {
-        volatile char dummy = 0xAA;
-
-        _l_stackPointer =  &dummy;
-
         _data.tm_now = getTick();
         std::cout << "[YIELD] Dumping threads before sort..." << std::endl;
         dump_threads();
 
         // Implementation of yield can be added here
         std::cout << "[YIELD] Sorting threads..." << std::endl;
-        _parent.sort(compare, this);
+        _context.sort(compare, this);
         std::cout << "[YIELD] Threads sorted." << std::endl;
         
         std::cout << "[YIELD] Dumping threads after sort..." << std::endl;
         dump_threads();
+
+        auto next = static_cast<thread_item*>(_context.getHeadItem());
+        if (next != nullptr)
+        {
+            auto* current = _context._current = next;
+
+            std::cout << "[YIELD] Next thread to run at address: " << current << std::endl;
+            std::cout << "[YIELD] Next thread state: " << static_cast<int>(current->_data.state) << std::endl;
+            std::cout << "[YIELD] Next thread last run time: " << current->_data.lastRunTime << std::endl;
+            std::cout << "[YIELD] Next thread stack pointer: " << current->_stk_bottom << std::endl;
+            std::cout << "[YIELD] Next thread context address: " << &(current->_context) << std::endl;
+            std::cout << "[YIELD] Next thread next item address: " << current->next << std::endl;
+            std::cout << "[YIELD] Next thread previous item address: " << current->prev << std::endl;
+            std::cout << "[YIELD] Next thread is about to be checked for readiness." << std::endl;
+
+            if (setjmp(current->_register_context) == 0)
+            {
+                volatile char dummy = 0xAA;
+                current->_stk_bottom =  &dummy;
+                size_t usedStackSize = _context._stk_top - current->_stk_bottom;
+
+                std::cout << "[YIELD] >>> Used stack size: " << usedStackSize << std::endl;
+
+                _context.save((volatile size_t*) _context._stk_top, (volatile size_t*) _v_stackPointer, usedStackSize);
+
+                if (current->_data.state == ax::State::READY)
+                {
+                    current->_data.state = ax::State::RUNNING;
+                    current->_data.lastRunTime = getTick();
+                    current->run();
+                }else{  
+                    std::cout << "[YIELD]  **** Next thread is not ready to run. ****" << std::endl;
+                    exit(EXIT_FAILURE);
+                }
+            }
+        }
 
         return;
     }
@@ -190,22 +222,27 @@ namespace ax {
         
         thread_item* current = (thread_item*) getHeadItem();
 
+        current->_data.state = ax::State::RUNNING;
+
+        volatile char dummy = 0xBB;
+        _stk_top = &dummy;
+        
         (void)current->run();
 
         return true;
     }
 
-    void thread_context::save (volatile size_t* stackPointer, size_t stackSize) volatile
+    void thread_context::save (volatile size_t* stackTop, volatile size_t* stackPointer, size_t stackSize) volatile
     {
-        (void)stackPointer;
-        (void)stackSize;
+        // Save the current stack contents to the provided stackTop location
+        memcpy((void*)stackPointer, (void*)stackTop, stackSize);
         return;
     }
 
-    void thread_context::restore (volatile size_t* stackPointer, size_t stackSize) volatile
+    void thread_context::restore (volatile size_t* stackTop, volatile size_t* stackPointer, size_t stackSize) volatile
     {
-        (void)stackPointer;
-        (void)stackSize;
+        // Restore the stack contents from the provided stackTop location
+        memcpy((void*)stackTop, (void*)stackPointer, stackSize);
         return;
     }
 

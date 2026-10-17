@@ -66,6 +66,7 @@ namespace ax {
     enum class State
     {
         READY,
+        NOW,
         RUNNING,
         SLEEPING,
         WAITING,
@@ -204,15 +205,17 @@ namespace ax {
             void yield();
 
         private:
+            friend class thread_context;
 
             volatile char* _v_stackPointer =  nullptr; // virtual stack memory pointer
-            volatile char* _l_stackPointer =  nullptr; // local stack memory pointer
+            volatile char* _stk_bottom =  nullptr; // local stack memory pointer
+            jmp_buf _register_context = {};
 
             volatile size_t stackSize = 0;
 
             volatile st_data _data;
 
-            thread_context& _parent;
+            thread_context& _context;
 
     };
 
@@ -224,14 +227,16 @@ namespace ax {
             bool start();
 
         protected:
-            void save (volatile size_t* stackPointer, size_t stackSize) volatile;
-
-            void restore (volatile size_t* stackPointer, size_t stackSize) volatile;
-
-
-        protected:
             friend class thread_item;
+
+            void save (volatile size_t* stackTop, volatile size_t* vStackPointer, size_t stackSize) volatile;
+
+            void restore (volatile size_t* stackTop, volatile size_t* vStackPointer, size_t stackSize) volatile;
+
+            thread_item* _current = nullptr;
     
+            volatile char* _stk_top = nullptr;
+
         private:
             bool running = false;
     };
