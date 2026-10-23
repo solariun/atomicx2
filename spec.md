@@ -9,7 +9,7 @@ the successor of atomicx v1.3.0 (github.com/solariun/atomicx), whose threads swi
 the stack in and out of a buffer (§3.6).
 
 **Status (2026-10-23): prototype, version `2.0.0.proto`, rebuilt from scratch since 2026-10-09; the last commit is
-`fcdb0d0` (2026-10-17), and the changes after it are not committed yet.** Built: the self-registering list
+`93feabe` (2026-10-23), and the earliest-deadline order after it (A7) is not committed yet.** Built: the self-registering list
 (`auto_obj_list`, with a stable merge sort), threads that register themselves and own a stack buffer
 (`thread_item`), the context that holds them (`thread_context`), and the schedule order that ranks them by state and
 by time (`thread_item::compare`). In progress: the context switch (`yield()`, `start()`, `save`, `restore`, §3.5), a
@@ -45,12 +45,13 @@ Development, §0.3). Where this file and the code disagree, the disagreement is 
 | 2026-10-14, `d8bb034` | **The stack as bytes (A9, Gustavo).** `_v_stackPointer` and `_l_stackPointer` became `volatile char*`, and the buffer `new (std::nothrow) volatile char[stack_size]`: `stack_size` bytes, while `stackSize` still multiplies by `sizeof(size_t)` (P27). `yield()` marks the live stack with a `volatile char` on its own frame. `_parent` lost its `volatile` (A5). `main.cpp` calls `myThreadContext.start()`. |
 | 2026-10-17, `2f9a027` | **`yield()` traced (A10, Gustavo).** `yield()` prints each step (`[YIELD]`) and dumps the context before and after the sort; `dump_threads()` first prints the yielding thread's address, its stack pointers, `tm_now`, `nice`, `lastRunTime`, its state, and the context's address with its head and tail (`[DUMP]`). |
 | 2026-10-17, `fcdb0d0` | **First cut of the stack-copy switch (A9, Gustavo, work in progress).** `yield()` takes the head of the sorted context as the next thread, records it in `thread_context::_current`, calls `setjmp` on its `jmp_buf`, marks its stack bottom, copies the stack slice into the yielding thread's buffer, and calls the next thread's `run()` when it is `READY`; any other state prints an error and exits. `start()` marks `_stk_top` on its own frame and sets the first thread `RUNNING`. `save` and `restore` became `memcpy` in each direction. `_l_stackPointer` renamed `_stk_bottom`, `_parent` renamed `_context`; new members `jmp_buf _register_context`, `_current`, `_stk_top`. `compare` counted `NOW` as ready and returned true whenever either thread was ready; `State` gained `NOW`. |
-| 2026-10-22 (uncommitted) | **The schedule rank (A7, Gustavo).** `compare` ranks by state first, from one `switch` over every `State` with no `default`: `NOW` and `READY`, then `RUNNING`, then `SLEEPING` and `WAITING`, then `TERMINATED`, always last; then due before not due; ties in list order. It replaces `fcdb0d0`'s rule, which was no strict weak ordering. Proof (§6): Gustavo's case (three `RUNNING`, one `TERMINATED`) `TYZX` before, `YZXT` after; one thread of each state `RNKWSU` before, `RNUWSK` after; 0 ordering violations in 2000 random rounds. |
-| 2026-10-22 (uncommitted) | **`dump_data(data, size, label)` (A10).** A function at the start of namespace `ax` in `atomicx.cpp` that prints memory as a hex dump: an optional `[label]:` line, then 16 bytes per line in two blocks of 8 and the same bytes as text, with `.` for every byte that is not printable. Written on Gustavo's request; Gustavo added `label` and calls it from `yield()` to show `jmp_buf` contents. Proof: 4 output tests pass byte for byte. |
-| 2026-10-22 (uncommitted) | **`yield()` goes on after a thread ends (A9, Gustavo, work in progress).** A thread whose `run()` returns is marked `TERMINATED` and the choice starts over (`goto start`); a `RUNNING` next thread is resumed with `longjmp` on its `jmp_buf`; the second return of `setjmp` restores the stack copy. As measured, the `longjmp` lands in the same `yield()` call that has just filled that `jmp_buf`, so no thread is resumed (P24). |
+| 2026-10-22, `93feabe` | **The schedule rank (A7, Gustavo).** `compare` ranks by state first, from one `switch` over every `State` with no `default`: `NOW` and `READY`, then `RUNNING`, then `SLEEPING` and `WAITING`, then `TERMINATED`, always last; then due before not due; ties in list order. It replaces `fcdb0d0`'s rule, which was no strict weak ordering. Proof (§6): Gustavo's case (three `RUNNING`, one `TERMINATED`) `TYZX` before, `YZXT` after; one thread of each state `RNKWSU` before, `RNUWSK` after; 0 ordering violations in 2000 random rounds. |
+| 2026-10-22, `93feabe` | **`dump_data(data, size, label)` (A10).** A function at the start of namespace `ax` in `atomicx.cpp` that prints memory as a hex dump: an optional `[label]:` line, then 16 bytes per line in two blocks of 8 and the same bytes as text, with `.` for every byte that is not printable. Written on Gustavo's request; Gustavo added `label` and calls it from `yield()` to show `jmp_buf` contents. Proof: 4 output tests pass byte for byte. |
+| 2026-10-22, `93feabe` | **`yield()` goes on after a thread ends (A9, Gustavo, work in progress).** A thread whose `run()` returns is marked `TERMINATED` and the choice starts over (`goto start`); a `RUNNING` next thread is resumed with `longjmp` on its `jmp_buf`; the second return of `setjmp` restores the stack copy. As measured, the `longjmp` lands in the same `yield()` call that has just filled that `jmp_buf`, so no thread is resumed (P24). |
 | 2026-10-22 | **This specification synced** with `1245c3b` to `fcdb0d0` and the uncommitted changes: decisions A3 and A5 to A10, sections 2.2, 2.3 and 3 rewritten for the code as built, §3.5 the switch in progress, the proposed switch in §3.6 (waiting for Gustavo, D2), the evidence of 2026-10-14 to 2026-10-22 (§6, AddressSanitizer included), P20 and P6 fixed, P23 to P29 new. |
-| 2026-10-23 (uncommitted) | **`setNice()`, and `yield()` sleeps until the chosen thread is due (A11, Gustavo).** `thread_item::setNice(ax::time)` (protected) sets the thread's `nice`. When the chosen thread is `RUNNING`, `yield()` computes the ticks left until it is due, `lastRunTime + nice - getTick()` in `ssize_t`, sleeps that long with `sleepTicks()` when it is positive, then `longjmp`s; after the restore it stamps the chosen thread's `lastRunTime` with `getTick()`. `dump_threads()` prints each thread's `nice` and `lastRunTime`; the dump after the sort and the `jmp_buf` dumps are commented out. `main.cpp`: four threads of 500 bytes with nice 500, 1000, 2000 and 5000 ticks and a counter each (100 to 400), whose `run()` prints its counter and yields, forever. *Measured* (§6): only the last thread started keeps running (P24, P25); slices reach 640 bytes for 500-byte buffers (P27); the sleep is not wrap-safe and `ssize_t` does not exist on AVR (P30). |
+| 2026-10-23, `93feabe` | **`setNice()`, and `yield()` sleeps until the chosen thread is due (A11, Gustavo).** `thread_item::setNice(ax::time)` (protected) sets the thread's `nice`. When the chosen thread is `RUNNING`, `yield()` computes the ticks left until it is due, `lastRunTime + nice - getTick()` in `ssize_t`, sleeps that long with `sleepTicks()` when it is positive, then `longjmp`s; after the restore it stamps the chosen thread's `lastRunTime` with `getTick()`. `dump_threads()` prints each thread's `nice` and `lastRunTime`; the dump after the sort and the `jmp_buf` dumps are commented out. `main.cpp`: four threads of 500 bytes with nice 500, 1000, 2000 and 5000 ticks and a counter each (100 to 400), whose `run()` prints its counter and yields, forever. *Measured* (§6): only the last thread started keeps running (P24, P25); slices reach 640 bytes for 500-byte buffers (P27); the sleep is not wrap-safe and `ssize_t` does not exist on AVR (P30). |
 | 2026-10-23 | **This specification synced** with the changes of 2026-10-23: A10 and A11, §1, §3.2, §3.5, §3.6, §4, §5 and §6 updated; P23, P24, P25 and P27 re-measured; P30 and P31 new. |
+| 2026-10-23 (uncommitted) | **Earliest deadline first (A7, Gustavo).** Between threads of the same rank, `compare` now orders by deadline, `lastRunTime + nice`, the earliest first and the most overdue first, wrap-safe (R3.16): each deadline is keyed as `deadline - now + 2^31`, so a plain `<` orders them across the tick wrap. It replaces "due before not due", which put no order among threads that were all due or all not due. Gustavo's report: four `RUNNING` threads with nice 2000, 1000, 500 and 5000, none due, stayed in list order after the sort; the thread with nice 500, due next, should come first. The new order refines the old one: a due thread's deadline is always before a not-due thread's, so only the ties of the old rule change. Proof (§6): Gustavo's dump sorted 500, 5000, 1000, 2000; §3.4's example, the wrap cases and Gustavo's earlier case unchanged; 0 ordering violations in 2000 random rounds. P22 narrowed. |
 
 ### How to read this document
 
@@ -95,7 +96,7 @@ schedule order (§3.4); the switch from one thread to the next is work in progre
 | A4 | **`class thread_context;` is declared before `thread_item`, and the `thread_item` constructor is defined where `thread_context` is complete** (since A1: in `atomicx.cpp`). | Gustavo moved `thread_context` after `thread_item`: its `start()` calls `run()` on a `thread_item`, which needs `thread_item` complete while the body is in the class. Then `thread_item`'s constructor names `thread_context` before its definition. A forward declaration gives only the name: it cannot say that `thread_context` derives from `auto_obj_list`, and `item(parent)` needs exactly that conversion, so that body cannot sit inside the class (*measured*: "cannot convert argument of incomplete type 'thread_context' to 'auto_obj_list &'"). Rejected: `thread_context` first, as at `8eea8f3`; possible again since A1, but not needed. |
 | A5 | **`add` and `remove` are `volatile` member functions, and `item::parent` is a `volatile auto_obj_list&`** (Gustavo, 2026-10-13). `thread_item` keeps its context with its own type in `_context`, a plain `thread_context&` since `d8bb034` (it was `volatile thread_context& _parent` in `fa67484`). | *Reason to be recorded by Gustavo* (P19). Consequence (*measured*): through `parent`, only `volatile` member functions can be called (`add`, `remove`, `count`, `sort`). `volatile` gives no atomicity (R2.4). |
 | A6 | **`thread_item`'s data members are private; `yield()` is protected** (Gustavo, 2026-10-13; `yield()` protected since `1245c3b`). `st_data`, `compare` and `dump_threads` are public. | *Reason to be recorded by Gustavo* (P19). Consequence: a class derived from `thread_item` calls `yield()` from its `run()` but cannot reach the buffer, `stackSize`, `_data` or `_context`. |
-| A7 | **The schedule order: `thread_item::compare(const item& a, const item& b, const thread_item* data)`** (Gustavo, 2026-10-14 and 2026-10-22), public and static, for `auto_obj_list::sort`. First key, the rank of the state: `NOW` and `READY`, then `RUNNING`, then `SLEEPING` and `WAITING`, then `TERMINATED`, always last. Second key, between threads of the same rank: due before not due, where a thread is due when `lastRunTime + nice` is not after now, now being `data->_data.tm_now`, tested wrap-safe (R3.16). Ties keep the list's order. | Gustavo: "now \| ready first, running, sleep \| waiting, terminated (always last)"; and whether nice plus the last run time goes beyond now is the next order. The rank comes from one `switch` with no `default`, so a new `State` does not compile until it is ranked (`-Wswitch`, an error under `-Werror`, *measured*). Now comes from the caller, read once per sort (`yield()` sets `tm_now` before sorting). The wrap-safe test: `ax::time` is a `uint32_t` that wraps (2^32 ms is about 49.7 days), and the naive `lastRunTime + nice <= now` misorders threads around the wrap (*measured*, §6). Rejected: `fcdb0d0`'s rule, true whenever either thread was ready, which is no strict weak ordering (*measured*: thousands of violations, a reversed tie); a two-level ready or not-ready rank, under which a due `TERMINATED` thread can come first (*measured*: `TYZX`). Proposed, waiting for Gustavo (P22): ordering due threads by due time, least recently run first, so that equal threads take turns. |
+| A7 | **The schedule order: `thread_item::compare(const item& a, const item& b, const thread_item* data)`** (Gustavo, 2026-10-14, 2026-10-22 and 2026-10-23), public and static, for `auto_obj_list::sort`. First key, the rank of the state: `NOW` and `READY`, then `RUNNING`, then `SLEEPING` and `WAITING`, then `TERMINATED`, always last. Second key, between threads of the same rank: the deadline, `lastRunTime + nice`, earliest first, relative to now (`data->_data.tm_now`) and wrap-safe (R3.16), so the most overdue thread comes first and, when none is due, the one due next. Ties keep the list's order. | Gustavo: "now \| ready first, running, sleep \| waiting, terminated (always last)"; and whether nice plus the last run time goes beyond now is the next order; then (2026-10-23) the thread that will be due next must come first. The rank comes from one `switch` with no `default`, so a new `State` does not compile until it is ranked (`-Wswitch`, an error under `-Werror`, *measured*). Now comes from the caller, read once per sort (`yield()` sets `tm_now` before sorting). The wrap-safe test: `ax::time` is a `uint32_t` that wraps (2^32 ms is about 49.7 days), and the naive `lastRunTime + nice <= now` misorders threads around the wrap (*measured*, §6). Rejected: `fcdb0d0`'s rule, true whenever either thread was ready, which is no strict weak ordering (*measured*: thousands of violations, a reversed tie); a two-level ready or not-ready rank, under which a due `TERMINATED` thread can come first (*measured*: `TYZX`); `93feabe`'s second key, due before not due, which leaves threads that are all due or all not due in list order (*measured*: Gustavo's four `RUNNING` threads, none due, nice 2000, 1000, 500 and 5000, unchanged by the sort). Open (P22): equal deadlines still keep the list's order instead of taking turns. |
 | A8 | **`yield()` sorts its context by the schedule order** (Gustavo, 2026-10-14): it sets `_data.tm_now = getTick()`, then calls `_context.sort(compare, this)`. `sort` and `count` are `volatile` member functions. | Gustavo asked for the sort in `yield()`. `sort` and `count` were made `volatile` so that `yield()` could call them through the `volatile` `_parent` of the time (A5); since `_context` is not `volatile` (`d8bb034`), that is no longer needed, but both still work on lists that are not `volatile`. Rejected then: casting `volatile` away (`const_cast`). |
 | A9 | **The stack is handled as bytes, and `yield()` switches threads by copying stack slices, as atomicx v1 does** (Gustavo, 2026-10-14 to 2026-10-22, **work in progress**): the buffer is `volatile char[stack_size]`; `start()` marks the top of the stack; `yield()` marks a bottom, copies the slice into a buffer, and uses `setjmp`/`longjmp` on a `jmp_buf` per thread (§3.5). | Gustavo's first cut toward v1's switch ("This is the first step toward atomicx v1's stack-copy switch", `d8bb034`). As built it does not switch threads yet (P23 to P27). A complete design following v1's structure is proposed in §3.6, waiting for Gustavo's confirmation (D2). |
 | A10 | **Tracing tools while the switch is built** (Gustavo, 2026-10-17 and 2026-10-22): `dump_threads()` prints the yielding thread and every thread of its context with its state, `nice` and `lastRunTime`; `yield()` prints each step; `dump_data(data, size, label)` prints memory as a hex dump. | Gustavo: so that the schedule order and the switch can be watched while they are built (`2f9a027`). They print with `std::cout`, which adds to P1. |
@@ -428,9 +429,9 @@ flowchart TD
 
 **In plain words.** Before choosing who runs next, the context's threads are put in order. First by what they are
 doing: threads that are ready to run come first, then the ones running, then the sleeping and waiting ones, and the
-finished ones always last. Between two threads of the same rank, the one whose time has come (its last run plus its
-`nice` is not after now) comes before the one that must still wait. Threads that tie keep the order they had,
-because the sort is stable. `yield()` applies this order to its own context.
+finished ones always last. Between two threads of the same rank, the one whose deadline (its last run plus its
+`nice`) comes first runs first: the most overdue thread, or, when none is due yet, the one due next. Threads with the
+same deadline keep the order they had, because the sort is stable. `yield()` applies this order to its own context.
 
 | Rank | States | |
 |---|---|---|
@@ -440,18 +441,27 @@ because the sort is stable. `yield()` applies this order to its own context.
 | 4 | `TERMINATED` | always last |
 
 ```
-now = 1000    state        lastRunTime + nice    due?
-   A          SLEEPING        0 +   1 =    1     yes
-   B          READY         995 +  10 = 1005     no, after now
-   C          READY           0 +   1 =    1     yes
-   D          READY         500 + 100 =  600     yes
-   E          TERMINATED    999 +  50 = 1049     no, after now
+now = 1000    state        deadline = lastRunTime + nice
+   A          SLEEPING        0 +   1 =    1     999 ticks overdue
+   B          READY         995 +  10 = 1005     due in 5
+   C          READY           0 +   1 =    1     999 ticks overdue
+   D          READY         500 + 100 =  600     400 ticks overdue
+   E          TERMINATED    999 +  50 = 1049     due in 49
 
 sorted:   C   D   B   A   E
-          C, D: rank 1, due (C before D: a tie keeps the list's order)
-                  B: rank 1, not due
+          C, D, B: rank 1, by deadline: 1, 600, 1005
                       A: rank 3
                           E: rank 4, always last
+```
+
+Gustavo's case of 2026-10-23, four `RUNNING` threads, none due, at now = 1773308405:
+
+```
+nice    lastRunTime    deadline        sorted
+2000    1773308405     1773310405      4th
+1000    1773308357     1773309357      3rd
+ 500    1773308296     1773308796      1st, due in 391
+5000    1773303885     1773308885      2nd, due in 480
 ```
 
 ```mermaid
@@ -459,19 +469,23 @@ flowchart TD
     q1{"do a and b have different ranks?"}
     q1 -->|yes| r1["true when the rank of a is lower"]
     q1 -->|no| n["now = data, tm_now"]
-    n --> q2{"is a due and b not due?"}
+    n --> k["key = deadline - now + 2^31, for a and for b"]
+    k --> q2{"is the key of a smaller?"}
     q2 -->|yes| t["true: a comes first"]
     q2 -->|no| f["false: a does not come before b"]
 ```
 
-**Ticks wrap.** `ax::time` is a `uint32_t`: at 1 ms per tick it wraps to 0 after 2^32 ms, about 49.7 days. The test
-measures how far now is past the due time, modulo 2^32:
+**Ticks wrap.** `ax::time` is a `uint32_t`: at 1 ms per tick it wraps to 0 after 2^32 ms, about 49.7 days, so two
+deadlines cannot be compared as plain numbers. Each one is measured from now instead, shifted by half the range
+(`k_tick_half_range`, 2^31), all modulo 2^32: 2^31 ticks overdue becomes 0, now becomes 2^31, and 2^31 - 1 ticks
+ahead becomes the largest key. The keys then compare with a plain `<`:
 
 ```
-due  when  (now - (lastRunTime + nice)) mod 2^32  <  2^31        (k_tick_half_range)
+key = (lastRunTime + nice - now + 2^31) mod 2^32
 
-now = 0x00000008, lastRunTime + nice = 0xFFFFFFF4:   now - due = 0x14 = 20   -> due, 20 ticks late
-                  the naive lastRunTime + nice <= now:   0xFFFFFFF4 <= 8 is false   -> "not due": wrong
+now = 0x00000008:   P's deadline 0xFFFFFFF4 (20 ticks overdue)   key 0x7FFFFFEC
+                    Q's deadline 0x00000010 (8 ticks ahead)      key 0x80000008    -> P before Q
+       the naive deadline order:  0xFFFFFFF4 > 0x10                          -> Q before P: wrong
 ```
 
 **Exact rules.**
@@ -481,16 +495,18 @@ now = 0x00000008, lastRunTime + nice = 0xFFFFFFF4:   now - due = 0x14 = 20   -> 
    (`ctx.sort(ax::thread_item::compare, thread)`), and casts both to `thread_item`: every item in the list must be a
    thread (R3.11). `data` must point to a thread whose `_data.tm_now` holds now.
 2. **R3.15** It returns true when `a` must come before `b`: the rank of `a`'s state is lower than the rank of `b`'s;
-   or the ranks are equal, and `a` is due while `b` is not. Otherwise false. The rank comes from a file-local `rank()`,
+   or the ranks are equal, and `a`'s key is smaller than `b`'s (R3.16). Otherwise false. The rank comes from a file-local `rank()`,
    one `switch` over every `State` with no `default`, so a new `State` must be ranked before the code compiles. For a
    fixed now this is a strict weak ordering (*measured*, §6), as `sort` requires (R2.7).
-3. **R3.16** A thread is due when `(ax::time)(now - (lastRunTime + nice)) < k_tick_half_range`, with
-   `now = data->_data.tm_now` and `k_tick_half_range` = 2^31, a constant of `atomicx.cpp`: its due time is at most
-   2^31 - 1 ticks in the past, 24.8 days at 1 ms per tick. A due time further in the past reads as in the future.
+3. **R3.16** A thread's key is `(ax::time)(lastRunTime + nice - now + k_tick_half_range)`, with
+   `now = data->_data.tm_now` and `k_tick_half_range` = 2^31, a constant of `atomicx.cpp`. Keys order deadlines
+   correctly from 2^31 ticks overdue to 2^31 - 1 ticks ahead, 24.8 days each way at 1 ms per tick; a deadline more
+   than 2^31 ticks overdue reads as far ahead and sorts last in its rank. The key is lowest for the most overdue
+   thread, so a thread is due exactly when its key is at most 2^31.
 4. **R3.17** Now is read from `data`, not from `getTick()`: it stays the same during one sort. `yield()` sets it with
    `_data.tm_now = getTick()` before sorting.
-5. **R3.18** Threads that tie keep the list's order (`sort` is stable): the first thread of the best rank and due-ness
-   in the list's current order comes first; equal threads are not rotated (P22).
+5. **R3.18** Threads that tie, the same rank and the same deadline, keep the list's order (`sort` is stable); equal
+   threads are not rotated (P22).
 
 ### 3.5 The context switch (as built, work in progress)
 
@@ -607,7 +623,7 @@ sequenceDiagram
 |---|---|---|
 | `thread_context::start()` | `atomicx::Start()`, the kernel loop | v1's returns only when no thread can run; AtomicX 2's has no loop yet. |
 | `thread_item::yield()` | `atomicx::Yield()` | Work in progress (§3.5). |
-| `thread_item::compare` | `SelectNextThread()`: `start` or `now` threads first, in list order, then the earliest wake-up | AtomicX 2 ranks by state, then due first, and does not order by wake-up time (A7, P22). |
+| `thread_item::compare` | `SelectNextThread()`: `start` or `now` threads first, in list order, then the earliest wake-up | AtomicX 2 ranks by state, then orders every rank by the earliest deadline, wrap-safe; v1 compares absolute deadlines and does not handle the wrap (A7). |
 | `save`, `restore` | the two `memcpy` of `Yield()` | AtomicX 2's copy from the wrong end (P23). |
 | `_v_stackPointer`, `stackSize` | `m_stack`, `m_stackSize` | v1's template constructor stores the element count in `m_stackSize` and compares it with a byte count: exact only for byte arrays, which every v1 example uses. AtomicX 2's buffer is in bytes; `stackSize` is not (P27). |
 | `_stk_top`, `_stk_bottom` | `m_pStaskStart`, `m_pStaskEnd` | v1 keeps both ends on the thread; AtomicX 2 keeps the top on the context. |
@@ -704,12 +720,14 @@ All runs from 2026-10-13 to 2026-10-23: macOS with Apple clang 21 (the Makefile'
 | `start()` with three threads (the `start()` of `fa67484`) | — | one `run()` call, then `true`; a second `start()` gives `false` |
 | Copying (R2.5, R2.6, R3.7) | — | a copied `item` unlinks the original (3 visible, then 2 while it still exists); a copied context keeps a pointer to a destroyed thread; copying a thread does not compile |
 | A program that does not define `getTick()` (R4.1) | links (before the library called `getTick()`) | `Undefined symbols: ax::getTick()` |
-| Tick wrap (A7): at now = 0xFFFFFFF8, X due 24 ticks ahead, past the wrap, and Y due; at now = 0x8, Q due 8 ticks ahead and P due 20 ticks ago, before the wrap | the naive `lastRunTime + nice <= now`: X Y and Q P, both wrong | the wrap-safe test: Y X and P Q |
-| The schedule order (A7), §3.4's example: five threads at now = 1000 | — | C D B A E |
+| Tick wrap (A7): at now = 0xFFFFFFF8, X due 24 ticks ahead, past the wrap, and Y due; at now = 0x8, Q due 8 ticks ahead and P due 20 ticks ago, before the wrap | the naive `lastRunTime + nice <= now`: X Y and Q P, both wrong | the wrap-safe test: Y X and P Q; the same with the deadline keys (2026-10-23) |
+| The schedule order (A7), §3.4's example: five threads at now = 1000 | — | C D B A E; the same with the deadline keys (2026-10-23) |
+| Earliest deadline first (A7, 2026-10-23), Gustavo's dump: four `RUNNING` threads at now = 1773308405, in list order nice 2000, 1000, 500, 5000, none due | `93feabe`'s due before not due: 2000, 1000, 500, 5000, the list's order | 500, 5000, 1000, 2000 (deadlines 1773308796, 1773308885, 1773309357, 1773310405) |
+| Equal deadlines (A7, 2026-10-23): A and B `READY`, both 100 + 10 | — | A B, the list's order (R3.18) |
 | `NOW` ranked with `READY` (A7): W `WAITING` due, N `NOW` not due, R `READY` due, S `SLEEPING` not due | — | R N W S |
-| Gustavo's case (A7): T `TERMINATED` due, X `RUNNING` not due, Y and Z `RUNNING` due | the two-level ready or not-ready rank: T Y Z X, `TERMINATED` first | the four ranks: Y Z X T |
+| Gustavo's case (A7): T `TERMINATED` due, X `RUNNING` not due, Y and Z `RUNNING` due | the two-level ready or not-ready rank: T Y Z X, `TERMINATED` first | the four ranks: Y Z X T; the same with the deadline keys (2026-10-23) |
 | One thread of each state, all due (A7): K `TERMINATED`, W `WAITING`, S `SLEEPING`, U `RUNNING`, R `READY`, N `NOW` | the two-level rank: R N K W S U | the four ranks: R N U W S K |
-| Strict weak ordering (A7): 2000 rounds of 6 random threads (all 6 states, due times around now); irreflexivity, asymmetry, transitivity and transitive ties over every pair and triple, and every sorted list | an interim rule ("true when the first is ready"): 4,065, 13,668 and 10,060 violations, 3,071 unsorted neighbours; §3.4's example sorted D C B A E | the four ranks: 0 violations |
+| Strict weak ordering (A7): 2000 rounds of 6 random threads (all 6 states, due times around now); irreflexivity, asymmetry, transitivity and transitive ties over every pair and triple, and every sorted list | an interim rule ("true when the first is ready"): 4,065, 13,668 and 10,060 violations, 3,071 unsorted neighbours; §3.4's example sorted D C B A E | the four ranks: 0 violations. With the deadline keys (2026-10-23): 2000 rounds of 6 random threads, deadlines within 100 ticks of now: 0 violations of each rule, 0 unsorted neighbours |
 | A `State` added without a case in `rank()` (A7) | — | does not compile: "enumeration value 'SUSPENDED' not handled in switch [-Werror,-Wswitch]" |
 | `dump_data` (A10): 16 zero bytes; 23 mixed bytes over two lines; the printable range's edges; 0 bytes | — | 4 outputs equal to the expected text, byte for byte |
 | `make build` as built (2026-10-23) | — | clean under `-Werror` (`atomicx.cpp` and `main.cpp`, exit 0) |
@@ -784,7 +802,7 @@ the history, or reading the code).
 | P19 | The reasons for A5 and A6, and the alternatives Gustavo rejected, are not recorded. | A5, A6. | What `volatile` on `add`, `remove` and `parent` must guarantee is unclear (it gives no atomicity, R2.4). |
 | P20 | *Fixed in `1245c3b`*: `make build` failed since A6, because `_l_stackPointer` and `_parent` were private and never used. | `-Werror,-Wunused-private-field` (§6). | The PC demo did not build. |
 | P21 | `auto_obj_list`, and so `thread_context`, can be copied (R2.6). | *measured*: a context passed by value compiles without a warning; after a copy, destroying a thread leaves the copy's `head` pointing at it. | A context copied by mistake holds dangling pointers. |
-| P22 | A7's proposal waits for Gustavo: ordering due threads by due time, least recently run first. (The other proposal, reading now once per sort, is built: `tm_now`, R3.17.) | A7. | Equal threads are not rotated: the first thread of the best rank and due-ness in list order always comes first. |
+| P22 | Threads with the same rank and the same deadline keep the list's order. (Ordering by deadline is built since 2026-10-23, and reading now once per sort since `1245c3b`: A7, R3.16, R3.17.) Proposed, waiting for Gustavo: breaking the tie by the least recently run. | A7, R3.18. | Equal threads are not rotated: of two threads with the same deadline, the first in list order always comes first. |
 | P23 | `save` and `restore` are given `_stk_top` as the start of the slice, so they copy `[_stk_top, _stk_top + size)`, the bytes above the threads' stack; the slice is `[_stk_bottom, _stk_top)`. | AddressSanitizer: "stack-buffer-overflow … READ of size 160" (2026-10-22) and 192 (2026-10-23) in `save`, inside `start()`'s frame (§6). | `save` stores the wrong bytes, and `restore` overwrites `start()`'s and `main()`'s frames. |
 | P24 | `yield()` saves registers with `setjmp` into the next thread's `_register_context` and sets the next thread's `_stk_bottom`, not its own. | `yield()`'s code; *measured*: each `longjmp` is followed by a restore in the same call (4 of 4 on 2026-10-22, 14 of 14 on 2026-10-23, where only thread 4 ran again). | A `RUNNING` thread is never resumed: the `longjmp` returns into the call that has just filled that `jmp_buf`. |
 | P25 | A new thread's `run()` is called from inside the yielding thread's `yield()`. | *measured*: slices of 112, 240, 368 and 496 bytes (2026-10-22), of 112, 288, 464 and 640 bytes (2026-10-23): a fixed step more for each thread started. | Threads run nested: each slice holds the frames of every thread started before it, and a finished thread returns into the `yield()` of the thread that started it. |
@@ -804,7 +822,8 @@ the history, or reading the code).
   stopped.
 - **Cooperative multithreading** — threads take turns on one processor, and each one gives the processor back by
   itself; nothing preempts it.
-- **Due** — a thread whose `lastRunTime + nice` is not after now, tested wrap-safe (§3.4).
+- **Deadline** — when a thread becomes due: `lastRunTime + nice`; the second key of the schedule order (§3.4).
+- **Due** — a thread whose deadline is not after now, tested wrap-safe (§3.4).
 - **Intrusive list** — a linked list whose links are members of the listed objects; it never allocates.
 - **Kernel** — in atomicx v1, the code in `Start()` that picks the next thread and switches to it; AtomicX 2 has none
   yet (§3.6).
@@ -813,8 +832,8 @@ the history, or reading the code).
 - **ODR (one definition rule)** — a non-inline function must be defined exactly once in a program; R1.2 keeps it.
 - **Rank** — the first key of the schedule order, from a thread's state: `NOW` and `READY`, `RUNNING`, `SLEEPING` and
   `WAITING`, `TERMINATED` (§3.4).
-- **Schedule order** — the order `thread_item::compare` gives a context: by rank, then due before not due, ties in
-  list order (§3.4).
+- **Schedule order** — the order `thread_item::compare` gives a context: by rank, then by deadline, the earliest
+  first, ties in list order (§3.4).
 - **Scheduler** — the code that chooses which thread runs next and switches to it; not complete yet (§3.5, §3.6, P8).
 - **Self-registering object** — an object whose constructor adds it to a list and whose destructor removes it.
 - **setjmp / longjmp** — the C library pair that saves the processor's registers at a point (`setjmp`) and later jumps

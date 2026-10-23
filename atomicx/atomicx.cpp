@@ -204,10 +204,13 @@ namespace ax {
 
         time now = data->_data.tm_now;
 
-        bool first_due = (time)(now - (first._data.lastRunTime + first._data.nice)) < k_tick_half_range;
-        bool second_due = (time)(now - (second._data.lastRunTime + second._data.nice)) < k_tick_half_range;
+        // Earliest deadline first. Offsetting each deadline by now - half range maps
+        // "half range overdue .. half range ahead" onto 0 .. max, so the keys order
+        // correctly across the tick wrap (and the most overdue thread comes first)
+        time first_key = (time)(first._data.lastRunTime + first._data.nice - now + k_tick_half_range);
+        time second_key = (time)(second._data.lastRunTime + second._data.nice - now + k_tick_half_range);
 
-        return first_due && !second_due;
+        return first_key < second_key;
     }
 
     void thread_item::dump_threads() volatile
