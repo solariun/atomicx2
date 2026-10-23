@@ -201,7 +201,7 @@ namespace ax {
             void dump_threads() volatile;
 
         protected:
-            
+            void setNice(ax::time nice);
             void yield();
 
         private:

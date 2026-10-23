@@ -41,6 +41,7 @@
 #include <unistd.h>
 
 #include <string.h>
+#include <ctype.h>
 #include <stdint.h>
 #include <setjmp.h>
 
@@ -48,6 +49,45 @@
 #include <new>
 
 namespace ax {
+
+    void dump_data(const void* data, size_t size, const char* label = nullptr)
+    {
+        static const size_t k_bytes_per_line = 16;
+        static const size_t k_bytes_per_block = 8;
+        static const unsigned k_nibble_bits = 4;
+        static const unsigned k_nibble_mask = 0x0F;
+        static const char k_hex_digits[] = "0123456789abcdef";
+
+        const unsigned char* bytes = static_cast<const unsigned char*>(data);
+
+        if (label) std::cout << "[" << label << "]:" << std::endl; 
+
+        for (size_t line = 0; line < size; line += k_bytes_per_line)
+        {
+            for (size_t i = 0; i < k_bytes_per_line; ++i)
+            {
+                if (i == k_bytes_per_block) std::cout << "  ";
+
+                if (line + i < size)
+                {
+                    unsigned char value = bytes[line + i];
+                    std::cout << k_hex_digits[value >> k_nibble_bits] << k_hex_digits[value & k_nibble_mask] << ' ';
+                }
+                else
+                    std::cout << "   ";
+            }
+
+            std::cout << "  ";
+
+            for (size_t i = 0; i < k_bytes_per_line && line + i < size; ++i)
+            {
+                unsigned char value = bytes[line + i];
+                std::cout << (isprint(value) ? (char)value : '.');
+            }
+
+            std::cout << std::endl;
+        }
+    }
 
     // Ticks wrap around: a time is due while now is less than half the tick range past it
     static const time k_tick_half_range = (time)(((time)~(time)0 >> 1) + 1);
@@ -121,15 +161,46 @@ namespace ax {
         _v_stackPointer = nullptr;
     }
 
+    // The schedule order's first key: a lower rank runs first
+    enum class Rank { READY, RUNNING, WAITING, TERMINATED };
+
+    static Rank rank(State state)
+    {
+        Rank order = Rank::TERMINATED;
+
+        switch (state)
+        {
+            case State::NOW:
+            case State::READY:
+                order = Rank::READY;
+                break;
+
+            case State::RUNNING:
+                order = Rank::RUNNING;
+                break;
+
+            case State::SLEEPING:
+            case State::WAITING:
+                order = Rank::WAITING;
+                break;
+
+            case State::TERMINATED:
+                order = Rank::TERMINATED;
+                break;
+        }
+
+        return order;
+    }
+
     bool thread_item::compare(const item& a, const item& b, const thread_item* data)
     {
         const thread_item& first = static_cast<const thread_item&>(a);
         const thread_item& second = static_cast<const thread_item&>(b);
 
-        bool first_ready = first._data.state == State::READY || first._data.state == State::NOW;
-        bool second_ready = second._data.state == State::READY || second._data.state == State::NOW;
+        Rank first_rank = rank(first._data.state);
+        Rank second_rank = rank(second._data.state);
 
-        if (first_ready || second_ready) return true;
+        if (first_rank != second_rank) return first_rank < second_rank;
 
         time now = data->_data.tm_now;
 
@@ -156,14 +227,22 @@ namespace ax {
         std::cout << "[DUMP] Dumping all threads in the parent context..." << std::endl;
         while (current)
         {
-            std::cout << "[DUMP] Thread at address: " << current << " State: " << static_cast<int>(current->_data.state) << std::endl;
+            std::cout << "[DUMP] Thread at address: " << current << " State: " << static_cast<int>(current->_data.state) << " Nice: " << current->_data.nice << " Last run time: " << current->_data.lastRunTime << std::endl;
             current = static_cast<const thread_item*>(current->next);
         }
     }
 
+    void thread_item::setNice(ax::time nice)
+    {
+        _data.nice = (volatile ax::time)nice;
+    }
+
     void thread_item::yield()
     {
+        start:
+
         _data.tm_now = getTick();
+
         std::cout << "[YIELD] Dumping threads before sort..." << std::endl;
         dump_threads();
 
@@ -172,25 +251,22 @@ namespace ax {
         _context.sort(compare, this);
         std::cout << "[YIELD] Threads sorted." << std::endl;
         
-        std::cout << "[YIELD] Dumping threads after sort..." << std::endl;
-        dump_threads();
+        // std::cout << "[YIELD] Dumping threads after sort..." << std::endl;
+        // dump_threads();
 
         auto next = static_cast<thread_item*>(_context.getHeadItem());
+        std::cout << "[YIELD] Next thread candidate at address: " << next << std::endl;
+        
         if (next != nullptr)
         {
             auto* current = _context._current = next;
 
-            std::cout << "[YIELD] Next thread to run at address: " << current << std::endl;
-            std::cout << "[YIELD] Next thread state: " << static_cast<int>(current->_data.state) << std::endl;
-            std::cout << "[YIELD] Next thread last run time: " << current->_data.lastRunTime << std::endl;
-            std::cout << "[YIELD] Next thread stack pointer: " << current->_stk_bottom << std::endl;
-            std::cout << "[YIELD] Next thread context address: " << &(current->_context) << std::endl;
-            std::cout << "[YIELD] Next thread next item address: " << current->next << std::endl;
-            std::cout << "[YIELD] Next thread previous item address: " << current->prev << std::endl;
-            std::cout << "[YIELD] Next thread is about to be checked for readiness." << std::endl;
+            memset(current->_register_context, 0, sizeof(current->_register_context));
 
             if (setjmp(current->_register_context) == 0)
             {
+                // dump_data(current->_register_context, sizeof(current->_register_context), "Set Jump Context");
+        
                 volatile char dummy = 0xAA;
                 current->_stk_bottom =  &dummy;
                 size_t usedStackSize = _context._stk_top - current->_stk_bottom;
@@ -204,10 +280,34 @@ namespace ax {
                     current->_data.state = ax::State::RUNNING;
                     current->_data.lastRunTime = getTick();
                     current->run();
-                }else{  
+                    current->_data.state = ax::State::TERMINATED;
+                    std::cout << "[YIELD] ***>>> Thread " << current << " finished." << std::endl;
+                    goto start;
+                } else if (current->_data.state == ax::State::RUNNING) {
+                    // dump_data(current->_register_context, sizeof(current->_register_context), "Register Context");
+                    fflush(stdout);
+                    
+                    std::cout << "[YIELD] Next thread is waiting." << std::endl;
+                    //sleep untinl thread is due
+                    ssize_t now = ((ssize_t)current->_data.lastRunTime + (ssize_t)current->_data.nice) - ax::getTick();
+                    std::cout << "[YIELD] >>>>>>>>>>> Sleeping for " << now << " ticks until thread is due. (Current time: " << ax::getTick() << ", Last run time: " << current->_data.lastRunTime << ", Thread state: " << (int)current->_data.state << ", Nice: " << (int)current->_data.nice << ")" << std::endl;
+                    
+                    if (now > 0)
+                    {
+                        ax::sleepTicks(now);
+                    }
+                    
+                    longjmp(current->_register_context, 1);
+                    exit(EXIT_FAILURE);
+                } else {  
                     std::cout << "[YIELD]  **** Next thread is not ready to run. ****" << std::endl;
                     exit(EXIT_FAILURE);
                 }
+            } else {
+                //std::cout << "[YIELD] Returning to previously saved context." << std::endl;
+                _context.restore((volatile size_t*) _context._stk_top, (volatile size_t*) _v_stackPointer, _context._stk_top - current->_stk_bottom);
+                std::cout << "[YIELD] Context restored." << std::endl;
+                current->_data.lastRunTime = ax::getTick();
             }
         }
 
