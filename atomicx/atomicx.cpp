@@ -95,13 +95,13 @@ namespace ax {
     auto_obj_list::item::item(auto_obj_list& parent) : parent(parent)
     { 
         parent.add(this); 
-        std::cout << "Added item to parent list at address: " << this << std::endl;
+        //std::cout << "Added item to parent list at address: " << this << std::endl;
     }
 
     auto_obj_list::item::~item()
     { 
         parent.remove(this);
-        std::cout << "Removed item from parent list at address: " << this << std::endl;
+        // std::cout << "Removed item from parent list at address: " << this << std::endl;
     }
 
     auto_obj_list::item* auto_obj_list::item::getNextItem(item* current) const { return current ? current->next : nullptr; }
@@ -151,7 +151,7 @@ namespace ax {
             std::cerr << "Failed to allocate stack for thread item." << std::endl;
             stackSize = 0;
         } else {
-            std::cout << ">>> Allocated stack for thread item at address: " << this->_v_stackPointer << " with size: " << stack_size << std::endl;
+            // std::cout << ">>> Allocated stack for thread item at address: " << this->_v_stackPointer << " with size: " << stack_size << std::endl;
         }
     }
 
@@ -217,22 +217,24 @@ namespace ax {
     {   
         const thread_item* current = static_cast<const thread_item*>(_context.getHeadItem());
         
-        std::cout << "[DUMP] Yielding thread at address: " << (const void*)this << std::endl;
-        std::cout << "[DUMP] Stack pointer set to: " << (const void*)_stk_bottom << std::endl;
-        std::cout << "[DUMP] Virtual stack pointer: " <<(const void*)(_v_stackPointer) << std::endl;
-        std::cout << "[DUMP] Current time: " << _data.tm_now << std::endl;
-        std::cout << "[DUMP] Nice value: " << _data.nice << std::endl;
-        std::cout << "[DUMP] Last run time: " << _data.lastRunTime << std::endl;
-        std::cout << "[DUMP] State: " << static_cast<int>(_data.state) << std::endl;
-        std::cout << "[DUMP] Parent context address: " << &_context << std::endl;
-        std::cout << "[DUMP] Head item address: " << _context.getHeadItem() << std::endl;
-        std::cout << "[DUMP] Tail item address: " << _context.getTailItem() << std::endl;
-        std::cout << "[DUMP] Dumping all threads in the parent context..." << std::endl;
+        // std::cout << "[DUMP] Yielding thread at address: " << (const void*)this << std::endl;
+        // std::cout << "[DUMP] Stack pointer set to: " << (const void*)_stk_bottom << std::endl;
+        // std::cout << "[DUMP] Virtual stack pointer: " <<(const void*)(_v_stackPointer) << std::endl;
+        // std::cout << "[DUMP] Current time: " << _data.tm_now << std::endl;
+        // std::cout << "[DUMP] Nice value: " << _data.nice << std::endl;
+        // std::cout << "[DUMP] Last run time: " << _data.lastRunTime << std::endl;
+        // std::cout << "[DUMP] State: " << static_cast<int>(_data.state) << std::endl;
+        // std::cout << "[DUMP] Parent context address: " << &_context << std::endl;
+        // std::cout << "[DUMP] Head item address: " << _context.getHeadItem() << std::endl;
+        // std::cout << "[DUMP] Tail item address: " << _context.getTailItem() << std::endl;
+
+        std::cout << "[DUMP] Dumping all threads in the parent context:" << std::endl;
         while (current)
         {
-            std::cout << "[DUMP] Thread at address: " << current << " State: " << static_cast<int>(current->_data.state) << " Nice: " << current->_data.nice << " Last run time: " << current->_data.lastRunTime << std::endl;
+            std::cout << " * [DUMP] Thread at address: " << current << " State: " << static_cast<int>(current->_data.state) << " Nice: " << current->_data.nice << " Last run time: " << current->_data.lastRunTime << std::endl;
             current = static_cast<const thread_item*>(current->next);
         }
+        std::cout << "[DUMP] --------------------------------" << std::endl;
     }
 
     void thread_item::setNice(ax::time nice)
@@ -240,25 +242,23 @@ namespace ax {
         _data.nice = (volatile ax::time)nice;
     }
 
+    ax::time thread_item::getNice() const
+    {
+        return _data.nice;
+    }
+    
     void thread_item::yield()
     {
         start:
 
         _data.tm_now = getTick();
 
-        std::cout << "[YIELD] Dumping threads before sort..." << std::endl;
-        dump_threads();
+        //dump_threads();
 
         // Implementation of yield can be added here
-        std::cout << "[YIELD] Sorting threads..." << std::endl;
         _context.sort(compare, this);
-        std::cout << "[YIELD] Threads sorted." << std::endl;
         
-        // std::cout << "[YIELD] Dumping threads after sort..." << std::endl;
-        // dump_threads();
-
         auto next = static_cast<thread_item*>(_context.getHeadItem());
-        std::cout << "[YIELD] Next thread candidate at address: " << next << std::endl;
         
         if (next != nullptr)
         {
@@ -274,9 +274,8 @@ namespace ax {
                 current->_stk_bottom =  &dummy;
                 size_t usedStackSize = _context._stk_top - current->_stk_bottom;
 
-                std::cout << "[YIELD] >>> Used stack size: " << usedStackSize << std::endl;
-
                 _context.save((volatile size_t*) _context._stk_top, (volatile size_t*) _v_stackPointer, usedStackSize);
+                std::cout << "[YIELD] Stack saved for thread at address: " << current << std::endl;
 
                 if (current->_data.state == ax::State::READY)
                 {
@@ -284,17 +283,14 @@ namespace ax {
                     current->_data.lastRunTime = getTick();
                     current->run();
                     current->_data.state = ax::State::TERMINATED;
-                    std::cout << "[YIELD] ***>>> Thread " << current << " finished." << std::endl;
                     goto start;
+
                 } else if (current->_data.state == ax::State::RUNNING) {
                     // dump_data(current->_register_context, sizeof(current->_register_context), "Register Context");
                     fflush(stdout);
                     
-                    std::cout << "[YIELD] Next thread is waiting." << std::endl;
                     //sleep untinl thread is due
-                    ssize_t now = ((ssize_t)current->_data.lastRunTime + (ssize_t)current->_data.nice) - ax::getTick();
-                    std::cout << "[YIELD] >>>>>>>>>>> Sleeping for " << now << " ticks until thread is due. (Current time: " << ax::getTick() << ", Last run time: " << current->_data.lastRunTime << ", Thread state: " << (int)current->_data.state << ", Nice: " << (int)current->_data.nice << ")" << std::endl;
-                    
+                    ssize_t now = ((ssize_t)current->_data.lastRunTime + (ssize_t)current->_data.nice) - ax::getTick();                    
                     if (now > 0)
                     {
                         ax::sleepTicks(now);

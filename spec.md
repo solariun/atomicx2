@@ -8,8 +8,9 @@ object registers the thread in the context; destroying it unregisters it; nothin
 the successor of atomicx v1.3.0 (github.com/solariun/atomicx), whose threads switch by copying each thread's part of
 the stack in and out of a buffer (§3.6).
 
-**Status (2026-10-23): prototype, version `2.0.0.proto`, rebuilt from scratch since 2026-10-09; the last commit is
-`93feabe` (2026-10-23), and the earliest-deadline order after it (A7) is not committed yet.** Built: the self-registering list
+**Status (2026-10-26): prototype, version `2.0.0.proto`, rebuilt from scratch since 2026-10-09; the last commit is
+`f656da0` (2026-10-23), and the changes after it (fewer traces, `getNice()`, eight threads in the demo) are not
+committed yet.** Built: the self-registering list
 (`auto_obj_list`, with a stable merge sort), threads that register themselves and own a stack buffer
 (`thread_item`), the context that holds them (`thread_context`), and the schedule order that ranks them by state and
 by time (`thread_item::compare`). In progress: the context switch (`yield()`, `start()`, `save`, `restore`, §3.5), a
@@ -51,7 +52,8 @@ Development, §0.3). Where this file and the code disagree, the disagreement is 
 | 2026-10-22 | **This specification synced** with `1245c3b` to `fcdb0d0` and the uncommitted changes: decisions A3 and A5 to A10, sections 2.2, 2.3 and 3 rewritten for the code as built, §3.5 the switch in progress, the proposed switch in §3.6 (waiting for Gustavo, D2), the evidence of 2026-10-14 to 2026-10-22 (§6, AddressSanitizer included), P20 and P6 fixed, P23 to P29 new. |
 | 2026-10-23, `93feabe` | **`setNice()`, and `yield()` sleeps until the chosen thread is due (A11, Gustavo).** `thread_item::setNice(ax::time)` (protected) sets the thread's `nice`. When the chosen thread is `RUNNING`, `yield()` computes the ticks left until it is due, `lastRunTime + nice - getTick()` in `ssize_t`, sleeps that long with `sleepTicks()` when it is positive, then `longjmp`s; after the restore it stamps the chosen thread's `lastRunTime` with `getTick()`. `dump_threads()` prints each thread's `nice` and `lastRunTime`; the dump after the sort and the `jmp_buf` dumps are commented out. `main.cpp`: four threads of 500 bytes with nice 500, 1000, 2000 and 5000 ticks and a counter each (100 to 400), whose `run()` prints its counter and yields, forever. *Measured* (§6): only the last thread started keeps running (P24, P25); slices reach 640 bytes for 500-byte buffers (P27); the sleep is not wrap-safe and `ssize_t` does not exist on AVR (P30). |
 | 2026-10-23 | **This specification synced** with the changes of 2026-10-23: A10 and A11, §1, §3.2, §3.5, §3.6, §4, §5 and §6 updated; P23, P24, P25 and P27 re-measured; P30 and P31 new. |
-| 2026-10-23 (uncommitted) | **Earliest deadline first (A7, Gustavo).** Between threads of the same rank, `compare` now orders by deadline, `lastRunTime + nice`, the earliest first and the most overdue first, wrap-safe (R3.16): each deadline is keyed as `deadline - now + 2^31`, so a plain `<` orders them across the tick wrap. It replaces "due before not due", which put no order among threads that were all due or all not due. Gustavo's report: four `RUNNING` threads with nice 2000, 1000, 500 and 5000, none due, stayed in list order after the sort; the thread with nice 500, due next, should come first. The new order refines the old one: a due thread's deadline is always before a not-due thread's, so only the ties of the old rule change. Proof (§6): Gustavo's dump sorted 500, 5000, 1000, 2000; §3.4's example, the wrap cases and Gustavo's earlier case unchanged; 0 ordering violations in 2000 random rounds. P22 narrowed. |
+| 2026-10-23, `f656da0` | **Earliest deadline first (A7, Gustavo).** Between threads of the same rank, `compare` now orders by deadline, `lastRunTime + nice`, the earliest first and the most overdue first, wrap-safe (R3.16): each deadline is keyed as `deadline - now + 2^31`, so a plain `<` orders them across the tick wrap. It replaces "due before not due", which put no order among threads that were all due or all not due. Gustavo's report: four `RUNNING` threads with nice 2000, 1000, 500 and 5000, none due, stayed in list order after the sort; the thread with nice 500, due next, should come first. The new order refines the old one: a due thread's deadline is always before a not-due thread's, so only the ties of the old rule change. Proof (§6): Gustavo's dump sorted 500, 5000, 1000, 2000; §3.4's example, the wrap cases and Gustavo's earlier case unchanged; 0 ordering violations in 2000 random rounds. P22 narrowed. |
+| 2026-10-26 (uncommitted) | **Fewer traces, `getNice()`, and eight threads in the demo (A10, A11, Gustavo).** Most of the traces are commented out: the "Added…", "Removed…" and "Allocated stack…" lines of the constructors and destructors (the allocation failure still prints on `std::cerr`), `dump_threads()`'s lines about the yielding thread and its context, and every `[YIELD]` step but two, "Stack saved for thread at address: …" after the `save` and "Context restored." after the restore; `yield()` no longer calls `dump_threads()`. `dump_threads()` now prints a header line, one ` * [DUMP]` line per thread and a separator. New: `thread_item::getNice()` (protected, `const`) returns the thread's `nice`. `main.cpp`: the four `MyThreadItem` threads no longer print; four `MySecThreadItem` threads, with the same stacks, nice and counters, print their counter, which now counts up, and their `nice`, and call `yield()` from a member function one call deeper than `run()`. *Measured* (§6): unchanged behaviour, only the last thread started keeps running (P24, P25). |
 
 ### How to read this document
 
@@ -99,8 +101,8 @@ schedule order (§3.4); the switch from one thread to the next is work in progre
 | A7 | **The schedule order: `thread_item::compare(const item& a, const item& b, const thread_item* data)`** (Gustavo, 2026-10-14, 2026-10-22 and 2026-10-23), public and static, for `auto_obj_list::sort`. First key, the rank of the state: `NOW` and `READY`, then `RUNNING`, then `SLEEPING` and `WAITING`, then `TERMINATED`, always last. Second key, between threads of the same rank: the deadline, `lastRunTime + nice`, earliest first, relative to now (`data->_data.tm_now`) and wrap-safe (R3.16), so the most overdue thread comes first and, when none is due, the one due next. Ties keep the list's order. | Gustavo: "now \| ready first, running, sleep \| waiting, terminated (always last)"; and whether nice plus the last run time goes beyond now is the next order; then (2026-10-23) the thread that will be due next must come first. The rank comes from one `switch` with no `default`, so a new `State` does not compile until it is ranked (`-Wswitch`, an error under `-Werror`, *measured*). Now comes from the caller, read once per sort (`yield()` sets `tm_now` before sorting). The wrap-safe test: `ax::time` is a `uint32_t` that wraps (2^32 ms is about 49.7 days), and the naive `lastRunTime + nice <= now` misorders threads around the wrap (*measured*, §6). Rejected: `fcdb0d0`'s rule, true whenever either thread was ready, which is no strict weak ordering (*measured*: thousands of violations, a reversed tie); a two-level ready or not-ready rank, under which a due `TERMINATED` thread can come first (*measured*: `TYZX`); `93feabe`'s second key, due before not due, which leaves threads that are all due or all not due in list order (*measured*: Gustavo's four `RUNNING` threads, none due, nice 2000, 1000, 500 and 5000, unchanged by the sort). Open (P22): equal deadlines still keep the list's order instead of taking turns. |
 | A8 | **`yield()` sorts its context by the schedule order** (Gustavo, 2026-10-14): it sets `_data.tm_now = getTick()`, then calls `_context.sort(compare, this)`. `sort` and `count` are `volatile` member functions. | Gustavo asked for the sort in `yield()`. `sort` and `count` were made `volatile` so that `yield()` could call them through the `volatile` `_parent` of the time (A5); since `_context` is not `volatile` (`d8bb034`), that is no longer needed, but both still work on lists that are not `volatile`. Rejected then: casting `volatile` away (`const_cast`). |
 | A9 | **The stack is handled as bytes, and `yield()` switches threads by copying stack slices, as atomicx v1 does** (Gustavo, 2026-10-14 to 2026-10-22, **work in progress**): the buffer is `volatile char[stack_size]`; `start()` marks the top of the stack; `yield()` marks a bottom, copies the slice into a buffer, and uses `setjmp`/`longjmp` on a `jmp_buf` per thread (§3.5). | Gustavo's first cut toward v1's switch ("This is the first step toward atomicx v1's stack-copy switch", `d8bb034`). As built it does not switch threads yet (P23 to P27). A complete design following v1's structure is proposed in §3.6, waiting for Gustavo's confirmation (D2). |
-| A10 | **Tracing tools while the switch is built** (Gustavo, 2026-10-17 and 2026-10-22): `dump_threads()` prints the yielding thread and every thread of its context with its state, `nice` and `lastRunTime`; `yield()` prints each step; `dump_data(data, size, label)` prints memory as a hex dump. | Gustavo: so that the schedule order and the switch can be watched while they are built (`2f9a027`). They print with `std::cout`, which adds to P1. |
-| A11 | **A thread sets its own `nice` with `setNice()`, and `yield()` sleeps until the chosen thread is due** (Gustavo, 2026-10-23). `nice` is how many ticks after its last run a thread becomes due; when the chosen thread is not due yet, `yield()` waits the gap with the program's `sleepTicks()`. | The same as v1's kernel, which sleeps until the earliest wake-up with `Atomicx_SleepTick` (§3.6); `sleepTicks()` is now called by the library. As built, the gap is computed in `ssize_t` from `lastRunTime + nice - getTick()`: not wrap-safe, unlike the schedule order (R3.16), and `ssize_t` does not exist on AVR (P30). |
+| A10 | **Tracing tools while the switch is built** (Gustavo, 2026-10-17, 2026-10-22 and 2026-10-26): `dump_threads()` prints every thread of the context with its state, `nice` and `lastRunTime`; `yield()` prints "Stack saved…" and "Context restored."; `dump_data(data, size, label)` prints memory as a hex dump. Since 2026-10-26 the other traces are commented out, not removed, and `yield()` does not call `dump_threads()`. | Gustavo: so that the schedule order and the switch can be watched while they are built (`2f9a027`); fewer of them so that the demo's own output can be read (2026-10-26). They print with `std::cout`, which adds to P1. |
+| A11 | **A thread sets its own `nice` with `setNice()` and reads it with `getNice()`, and `yield()` sleeps until the chosen thread is due** (Gustavo, 2026-10-23; `getNice()` 2026-10-26). `nice` is how many ticks after its last run a thread becomes due; when the chosen thread is not due yet, `yield()` waits the gap with the program's `sleepTicks()`. | The same as v1's kernel, which sleeps until the earliest wake-up with `Atomicx_SleepTick` (§3.6); `sleepTicks()` is now called by the library. As built, the gap is computed in `ssize_t` from `lastRunTime + nice - getTick()`: not wrap-safe, unlike the schedule order (R3.16), and `ssize_t` does not exist on AVR (P30). |
 
 ### 0.3 Development standards: the definition of done
 
@@ -141,7 +143,7 @@ flowchart LR
 |---|---|
 | `atomicx/atomicx.h` | The interface (A1): the `ax` namespace, its types, the classes and the template `sort`. |
 | `atomicx/atomicx.cpp` | The definitions of every non-template member function (A1), and the file's own helpers: `dump_data`, the schedule rank (`Rank`, `rank`) and `k_tick_half_range`. |
-| `main.cpp` | The PC demo: four threads that print a counter and yield, forever, run by `start()` (§4). |
+| `main.cpp` | The PC demo: eight threads that yield forever, four of them printing a counter, run by `start()` (§4). |
 | `arduino/simple/simple.ino` | The Arduino sketch; `arduino/simple/atomicx` is a symbolic link to `../../atomicx`. |
 | `Makefile` | The PC build and the Arduino targets (§1.2). |
 | `README.md` | A stub with a Nano compile command (P15). |
@@ -310,6 +312,7 @@ classDiagram
         +compare(a, b, data) bool$
         +dump_threads()
         #setNice(nice)
+        #getNice() time
         #yield()
         -_v_stackPointer
         -_stk_bottom
@@ -373,15 +376,16 @@ thread_item(ctx, stack_size)
    has no usable copy constructor (*measured*: "copy constructor of 'thread_item' is implicitly deleted because field
    '_data' has no copy constructor"). That protects threads from R2.5's hazard, by accident rather than by design.
 8. **R3.8** `yield()` is protected: a thread's `run()` calls it to give the processor back. As built it is work in
-   progress (§3.5). `setNice()` is protected too: a thread class sets its own `nice`, usually in its constructor, as
-   `main.cpp` does.
+   progress (§3.5). `setNice()` and `getNice()` are protected too: a thread class sets its own `nice`, usually in its
+   constructor, and reads it back, as `main.cpp` does.
 
 | Member | Access | Type | Meaning (as built) |
 |---|---|---|---|
 | `st_data` | public | struct | `tm_now` (now, for the schedule order), `lastRunTime`, `nice` (`ax::time`) and `state`. |
 | `compare(a, b, data)` | public, static | `bool (const item&, const item&, const thread_item*)` | The schedule order (A7, §3.4). |
-| `dump_threads()` | public | `void () volatile` | Prints this thread's address, stack pointers, `tm_now`, `nice`, `lastRunTime` and state, the context's address with its head and tail, and every thread of the context with its state, `nice` and `lastRunTime` (`[DUMP]` lines, A10). |
+| `dump_threads()` | public | `void () volatile` | Prints a header line, every thread of the context with its address, state, `nice` and `lastRunTime` (` * [DUMP]` lines), and a separator (A10). Its lines about this thread and the context are commented out; nothing calls it. |
 | `setNice(nice)` | protected | `void (ax::time)` | Sets `_data.nice` (A11). |
+| `getNice()` | protected | `ax::time () const` | Returns `_data.nice` (A11). |
 | `yield()` | protected | `void ()` | Sorts the context and tries to switch to its head (§3.5). |
 | `_v_stackPointer` | private | `volatile char*` | The thread's stack buffer ("virtual stack memory"), `stack_size` bytes. |
 | `_stk_bottom` | private | `volatile char*` | The lowest address of a stack slice, set by `yield()` (as built, on the next thread: P24). |
@@ -519,17 +523,17 @@ only the last thread started keeps running. This section describes the code; it 
 
 ```mermaid
 flowchart TD
-    a["tm_now = getTick, dump, sort, dump"] --> b{"a head in the list?"}
+    a["tm_now = getTick, sort"] --> b{"a head in the list?"}
     b -->|no| z["return"]
     b -->|yes| c["_current = head, setjmp on the head's jmp_buf"]
-    c -->|first return| d["mark the head's stack bottom, save from _stk_top into this thread's buffer"]
+    c -->|first return| d["mark the head's stack bottom, save from _stk_top into this thread's buffer, print Stack saved"]
     d --> e{"state of the head"}
     e -->|READY| g["RUNNING, lastRunTime = getTick, call its run"]
-    g --> h["TERMINATED, print finished, start over"]
+    g --> h["TERMINATED, start over"]
     h --> a
     e -->|RUNNING| w["sleep until the head is due, with sleepTicks"]
     w --> j["longjmp on the head's jmp_buf"]
-    j --> k["lands in the setjmp just made: restore, stamp the head's lastRunTime"]
+    j --> k["lands in the setjmp just made: restore, print Context restored, stamp the head's lastRunTime"]
     e -->|other| x["print not ready, exit with EXIT_FAILURE"]
     c -->|second return| k
     k --> z
@@ -548,7 +552,9 @@ start()                                                    _stk_top
                  this same yield(), restore, return: thread 4 prints 400 again, yields again, ...
 ```
 
-Over 8 s, 100, 200 and 300 were printed once each and 400 fourteen times. With the demo of 2026-10-22 (threads of 250
+Over 8 s, 100, 200 and 300 were printed once each and 400 fourteen times. The demo of 2026-10-26 (eight threads,
+§4) nests the same way, eight deep: over 10 s, the counters 100, 200 and 300 were printed once each, and the last
+thread started (nice 5000) counted from 400 to 465. With the demo of 2026-10-22 (threads of 250
 bytes that yielded once and returned), the same nesting gave slices of 112, 240, 368 and 496 bytes, and the nested
 calls unwound in order: three "finished" lines, then `start()` returned.
 
@@ -670,11 +676,14 @@ gives it two functions. As built, the library calls both in `yield()`: `getTick(
    link (*measured*).
 2. **R4.2** The tick's unit is the program's choice; both examples use milliseconds.
 
-The demo (`main.cpp`): four `MyThreadItem` objects are constructed with a global `thread_context`, with stacks of
-500 bytes, nice 500, 1000, 2000 and 5000 ticks (set with `setNice()` in the constructor), and counters 100, 200, 300
-and 400; they are listed with `getHeadItem` and `getNextItem`, and `main()` calls `start()`. Each `run()` prints its
-counter and calls `yield()`, forever, so `start()` never returns. *Measured* (2026-10-23): the trace of §3.5, in which
-only the counter 400 keeps being printed.
+The demo (`main.cpp`): eight threads are constructed with a global `thread_context`, all with stacks of 500 bytes:
+four `MyThreadItem`, then four `MySecThreadItem`, each four with nice 500, 1000, 2000 and 5000 ticks (set with
+`setNice()` in the constructor) and counters 100, 200, 300 and 400. They are listed with `getHeadItem` and
+`getNextItem`, and `main()` calls `start()`. Every `run()` loops forever, so `start()` never returns. A
+`MyThreadItem`'s `run()` only calls `yield()` (its print is commented out); a `MySecThreadItem`'s `run()` calls its
+private `dump()`, which prints the thread's address, its counter (then counts it up) and `getNice()`, and calls
+`yield()` from there, one call deeper. *Measured* (2026-10-26): the trace of §3.5, in which only the last thread
+started, counter 400, keeps printing.
 
 ---
 
@@ -733,6 +742,7 @@ All runs from 2026-10-13 to 2026-10-23: macOS with Apple clang 21 (the Makefile'
 | `make build` as built (2026-10-23) | — | clean under `-Werror` (`atomicx.cpp` and `main.cpp`, exit 0) |
 | The PC demo of 2026-10-22 (§3.5): threads of 250 bytes that yield once | — | exit 0; slices of 112, 240, 368 and 496 bytes for buffers of 250; 4 `longjmp`s, each followed by "Context restored"; 3 "finished" lines |
 | The PC demo as built (2026-10-23), sampled for 8 s | — | runs until stopped; counters 100, 200 and 300 printed once each, 400 printed 14 times; slices of 112, 288, 464 and 640 bytes for buffers of 500; sleeps of 475 to 977 ms before a `longjmp`; 14 `longjmp`s, each followed by a restore in the same call; the first computed gap -1,769,946,455 ticks (P31) |
+| The PC demo as built (2026-10-26), eight threads (§4), sampled for 10 s | — | `make build` clean under `-Werror`; runs until stopped; the 8 listed addresses, then counters 100, 200 and 300 printed once each and 400 to 465 (66 lines), all from `MySecThreadItem` threads; 73 "Stack saved…" lines, each naming the chosen head (P24); 65 "Context restored." lines, each followed by the same thread printing again |
 | The PC demo under AddressSanitizer (`-fsanitize=address`) | — | stops at the first switch: "stack-buffer-overflow … READ of size 160" (2026-10-22) and "READ of size 192" (2026-10-23) in `thread_context::save`, called from `yield()`, at an address inside `start()`'s frame (P23) |
 | `ssize_t` on the targets (A11) | — | defined on the PC and on the ESP32 (newlib: `typedef _ssize_t ssize_t;`); defined nowhere in the AVR toolchain's headers (avr-gcc 7.3) |
 | ESP32, the probe sketch, code of 2026-10-14 (the two-parameter `compare`), `--warnings all` | — | 522,313 bytes of flash, 29,288 bytes of RAM, no warning from AtomicX |

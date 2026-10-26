@@ -202,6 +202,7 @@ namespace ax {
 
         protected:
             void setNice(ax::time nice);
+            ax::time getNice() const;
             void yield();
 
         private:
