@@ -174,6 +174,7 @@ namespace ax {
         private:
             item* head = nullptr;
             item* tail = nullptr;
+            size_t _count = 0;
     };
 
     class thread_context;
@@ -213,8 +214,6 @@ namespace ax {
             jmp_buf _register_context = {};
 
             volatile size_t _stackSize = 0;
-            volatile char* _stk_top = nullptr; // top of the stack memory pointer
-
             volatile st_data _data;
 
             thread_context& _context;

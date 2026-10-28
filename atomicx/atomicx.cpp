@@ -111,10 +111,7 @@ namespace ax {
 
     size_t auto_obj_list::count() const volatile
     {
-        size_t cnt = 0;
-        for (item* current = head; current; current = current->next)
-            ++cnt;
-        return cnt;
+        return _count;
     }
 
     auto_obj_list::item* auto_obj_list::getHeadItem() const { return head; }
@@ -129,6 +126,7 @@ namespace ax {
         if (tail) tail->next = newItem;
         tail = newItem;
         if (!head) head = newItem;
+        _count++;
         return true;
     }
 
@@ -141,6 +139,7 @@ namespace ax {
         if (itemToRemove == tail) tail = itemToRemove->prev;
         itemToRemove->next = nullptr;
         itemToRemove->prev = nullptr;
+        _count--;
         return true;
     }
 
@@ -249,8 +248,6 @@ namespace ax {
     
     void thread_item::yield()
     {
-        start:
-
         _data.tm_now = getTick();
 
         //dump_threads();
@@ -276,7 +273,7 @@ namespace ax {
                 if (usedStackSize > _stackSize)
                 {
                     std::cerr << "[YIELD] *** STACK OVERFLOW ***: Used stack size exceeds allocated stack size. max: " << _stackSize << " used: " << usedStackSize << ", diff:" << (usedStackSize - _stackSize) << std::endl;
-                    longjmp(_context._top_context, 1);
+                    longjmp(_context._top_context, 3);
                 }
 
                 _context.save((volatile size_t*) _context._stk_top, (volatile size_t*) _v_stackPointer, usedStackSize);
@@ -284,12 +281,9 @@ namespace ax {
 
                 if (current->_data.state == ax::State::READY)
                 {
-                    current->_data.state = ax::State::RUNNING;
-                    current->_data.lastRunTime = getTick();
-                    current->run();
-                    current->_data.state = ax::State::TERMINATED;
-                    goto start;
-
+                    std::cout << "[YIELD] Next thread is ready to run." << std::endl << std::flush;
+                    longjmp(_context._top_context, 1);
+                    exit(EXIT_FAILURE);
                 } else if (current->_data.state == ax::State::RUNNING) {
                     // dump_data(current->_register_context, sizeof(current->_register_context), "Register Context");
                     fflush(stdout);
@@ -301,17 +295,17 @@ namespace ax {
                         ax::sleepTicks(now);
                     }
                     
-                    longjmp(_context._top_context, 1);
+                    std::cout << "[YIELD] Woke up from sleep, resuming thread." << std::endl << std::flush;
+                    longjmp(current->_register_context, 1);
                     exit(EXIT_FAILURE);
                 } else {  
-                    std::cout << "[YIELD]  **** Next thread is not ready to run. ****" << std::endl;
-                    longjmp(_context._top_context, 1);
-                        
+                    std::cout << "[YIELD]  **** Next thread is not ready to run. ****" << std::endl << std::flush;
+                    longjmp(_context._top_context, 2);    
                     exit(EXIT_FAILURE);
                 }
             } else {
                 //std::cout << "[YIELD] Returning to previously saved context." << std::endl;
-                _context.restore((volatile size_t*) _context._stk_top, (volatile size_t*) _context._current->_v_stackPointer, _context._current->_stk_top - _context._current->_stk_bottom);
+                _context.restore((volatile size_t*) _context._stk_top, (volatile size_t*) _context._current->_v_stackPointer, _context._stk_top - _context._current->_stk_bottom);
                 std::cout << "[YIELD] Context restored." << std::endl;
                 current->_data.lastRunTime = ax::getTick();
             }
@@ -335,7 +329,15 @@ namespace ax {
             _stk_top = &dummy;
         }
 
-        if (setjmp(_top_context)) goto error;
+        int jmp_val = setjmp(_top_context);
+        std::cout << "[START] setjmp returned with value: " << jmp_val << std::endl;
+
+        if (jmp_val > 1) 
+        {
+            goto error;
+        } else {
+            std::cout << "[START] Starting thread context." << std::endl;
+        }
 
         current = (thread_item*) getHeadItem();
         current->_data.state = ax::State::RUNNING;
@@ -361,6 +363,4 @@ namespace ax {
         memcpy((void*)stackTop, (void*)stackPointer, stackSize);
         return;
     }
-
-
 }
