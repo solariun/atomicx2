@@ -144,12 +144,12 @@ namespace ax {
         return true;
     }
 
-    thread_item::thread_item(thread_context& parent, size_t stack_size) : item(parent), _v_stackPointer(new (std::nothrow) volatile char[stack_size]), stackSize(stack_size * sizeof(size_t)), _context(parent) 
+    thread_item::thread_item(thread_context& parent, size_t stack_size) : item(parent), _v_stackPointer(new (std::nothrow) volatile char[stack_size]), _stackSize(stack_size * sizeof(size_t)), _context(parent) 
     {
 
         if (!this->_v_stackPointer) {
             std::cerr << "Failed to allocate stack for thread item." << std::endl;
-            stackSize = 0;
+            _stackSize = 0;
         } else {
             // std::cout << ">>> Allocated stack for thread item at address: " << this->_v_stackPointer << " with size: " << stack_size << std::endl;
         }
@@ -264,15 +264,20 @@ namespace ax {
         {
             auto* current = _context._current = next;
 
-            memset(current->_register_context, 0, sizeof(current->_register_context));
-
             if (setjmp(current->_register_context) == 0)
             {
                 // dump_data(current->_register_context, sizeof(current->_register_context), "Set Jump Context");
         
                 volatile char dummy = 0xAA;
-                current->_stk_bottom =  &dummy;
-                size_t usedStackSize = _context._stk_top - current->_stk_bottom;
+                _stk_bottom =  &dummy;
+
+                size_t usedStackSize = _context._stk_top - _stk_bottom;
+
+                if (usedStackSize > _stackSize)
+                {
+                    std::cerr << "[YIELD] *** STACK OVERFLOW ***: Used stack size exceeds allocated stack size. max: " << _stackSize << " used: " << usedStackSize << ", diff:" << (usedStackSize - _stackSize) << std::endl;
+                    longjmp(_context._top_context, 1);
+                }
 
                 _context.save((volatile size_t*) _context._stk_top, (volatile size_t*) _v_stackPointer, usedStackSize);
                 std::cout << "[YIELD] Stack saved for thread at address: " << current << std::endl;
@@ -296,15 +301,17 @@ namespace ax {
                         ax::sleepTicks(now);
                     }
                     
-                    longjmp(current->_register_context, 1);
+                    longjmp(_context._top_context, 1);
                     exit(EXIT_FAILURE);
                 } else {  
                     std::cout << "[YIELD]  **** Next thread is not ready to run. ****" << std::endl;
+                    longjmp(_context._top_context, 1);
+                        
                     exit(EXIT_FAILURE);
                 }
             } else {
                 //std::cout << "[YIELD] Returning to previously saved context." << std::endl;
-                _context.restore((volatile size_t*) _context._stk_top, (volatile size_t*) _v_stackPointer, _context._stk_top - current->_stk_bottom);
+                _context.restore((volatile size_t*) _context._stk_top, (volatile size_t*) _context._current->_v_stackPointer, _context._current->_stk_top - _context._current->_stk_bottom);
                 std::cout << "[YIELD] Context restored." << std::endl;
                 current->_data.lastRunTime = ax::getTick();
             }
@@ -321,14 +328,24 @@ namespace ax {
         
         thread_item* current = (thread_item*) getHeadItem();
 
-        current->_data.state = ax::State::RUNNING;
-
-        volatile char dummy = 0xBB;
-        _stk_top = &dummy;
+        sort(thread_item::compare, current);
         
+        {
+            volatile char dummy = 0xBB;
+            _stk_top = &dummy;
+        }
+
+        if (setjmp(_top_context)) goto error;
+
+        current = (thread_item*) getHeadItem();
+        current->_data.state = ax::State::RUNNING;
+        current->_data.lastRunTime = getTick();
+
         (void)current->run();
 
-        return true;
+    error:
+
+        return false;
     }
 
     void thread_context::save (volatile size_t* stackTop, volatile size_t* stackPointer, size_t stackSize) volatile

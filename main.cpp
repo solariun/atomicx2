@@ -102,6 +102,8 @@ int main()
 
     myThreadContext.start();
     
+    std::cout << "Main thread finished." << std::endl;
+    
     return 0;
 }
 

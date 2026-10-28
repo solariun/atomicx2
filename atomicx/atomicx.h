@@ -212,7 +212,8 @@ namespace ax {
             volatile char* _stk_bottom =  nullptr; // local stack memory pointer
             jmp_buf _register_context = {};
 
-            volatile size_t stackSize = 0;
+            volatile size_t _stackSize = 0;
+            volatile char* _stk_top = nullptr; // top of the stack memory pointer
 
             volatile st_data _data;
 
@@ -235,7 +236,7 @@ namespace ax {
             void restore (volatile size_t* stackTop, volatile size_t* vStackPointer, size_t stackSize) volatile;
 
             thread_item* _current = nullptr;
-    
+            jmp_buf _top_context = {};
             volatile char* _stk_top = nullptr;
 
         private:
