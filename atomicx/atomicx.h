@@ -103,66 +103,34 @@ namespace ax {
             
             item* getTailItem() const;
 
+            bool swap(item* a, item* b) volatile;
+
             /**
-             * @brief Sorts the list in place using a bottom-up merge sort.
+             * @brief Sorts the list in place: a stable insertion sort that moves items with swap().
              *
-             * Merge sort is stable, O(n log n) in all cases, needs O(1) extra
-             * memory on linked lists and no recursion (safe for small MCUs).
-             * No STL is used.
+             * Each item moves back, one swap at a time, while it must come before the item
+             * in front of it, so equal items never pass each other (stable). O(n) comparisons
+             * on a list already in order, O(n^2) at worst; no recursion, O(1) extra memory
+             * (safe for small MCUs). No STL is used.
              *
              * @tparam Compare Callable type (functor, lambda or function pointer)
-             *         supplied by the caller, invoked as `bool cmp(const item& a, const item& b)`.
-             *         Must return true when @p a must come before @p b.
-             * @param cmp Comparison callable. Inlined by the compiler (no virtual
-             *        calls, no std::function).
+             *         supplied by the caller, invoked as `bool cmp(const item& a, const item& b, Data data)`.
+             *         Must return true when @p a must come strictly before @p b.
+             * @tparam Data Whatever cmp needs to decide; passed by value to every call.
              */
             template <typename Compare, typename Data>
             void sort(Compare cmp, Data data) volatile
             {
-                if (!head || !head->next) return;
+                if (!head) return;
 
-                size_t total = count();
-
-                for (size_t width = 1; width < total; width <<= 1)
+                for (item* current = head->next; current; )
                 {
-                    item* cur = head;
-                    item* newHead = nullptr;
-                    item* newTail = nullptr;
+                    item* following = current->next;
 
-                    while (cur)
-                    {
-                        // Split two runs of up to 'width' items
-                        item* left = cur;
-                        item* right = left;
-                        for (size_t i = 0; i < width && right; ++i) right = right->next;
-                        item* rest = right;
-                        for (size_t i = 0; i < width && rest; ++i) rest = rest->next;
+                    while (current->prev && cmp(*current, *current->prev, data)) swap(current->prev, current);
 
-                        // Merge runs: left [left..right), right [right..rest)
-                        item* lend = right;
-                        item* rend = rest;
-                        while (left != lend || right != rend)
-                        {
-                            item* pick;
-                            if (left == lend)       { pick = right; right = right->next; }
-                            else if (right == rend) { pick = left;  left  = left->next;  }
-                            else if (cmp(*right, *left, data)) { pick = right; right = right->next; }
-                            else                    { pick = left;  left  = left->next;  }
-
-                            if (newTail) newTail->next = pick; else newHead = pick;
-                            newTail = pick;
-                        }
-                        cur = rest;
-                    }
-
-                    newTail->next = nullptr;
-                    head = newHead;
+                    current = following;
                 }
-
-                // Rebuild prev links and tail
-                item* p = nullptr;
-                for (item* c = head; c; c = c->next) { c->prev = p; p = c; }
-                tail = p;
             }
 
             

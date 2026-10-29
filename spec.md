@@ -8,16 +8,16 @@ object registers the thread in the context; destroying it unregisters it; nothin
 the successor of atomicx v1.3.0 (github.com/solariun/atomicx), whose threads switch by copying each thread's part of
 the stack in and out of a buffer (§3.6).
 
-**Status (2026-10-28): prototype, version `2.0.0.proto`, rebuilt from scratch since 2026-10-09; the last commit is
-`ef5eeee` (2026-10-28), which does not compile; the changes after it (Gustavo's redesign of the switch, A12) are not
-committed yet.** Built: the self-registering list
+**Status (2026-10-29): prototype, version `2.0.0.proto`, rebuilt from scratch since 2026-10-09; the last commit is
+`e6e9d97` (2026-10-28, "saving", not synced here yet: P35); the changes after it (A13, A14 and the slice range fix)
+are not committed yet.** Built: the self-registering list
 (`auto_obj_list`, with a stable merge sort), threads that register themselves and own a stack buffer
 (`thread_item`), the context that holds them (`thread_context`), and the schedule order that ranks them by state and
 by time (`thread_item::compare`). In progress: the context switch (`yield()`, `start()`, `save`, `restore`, §3.5), a
 first cut of atomicx v1's stack copy, with the scheduling inside `yield()` (A12), that does not switch threads yet:
 new threads run nested inside the yielding one, and the first time a running thread is chosen, `yield()` jumps back
-to `start()`, which returns; the stack copies cover the wrong range, and the overflow check uses a size 8 times the
-buffer (P23, P25, P27, P32, P33); `yield()` already sleeps until the chosen thread is due (A11). Not built: the `NOW`, `SLEEPING` and `WAITING`
+to `start()`, which returns; the overflow check uses a size 8 times the buffer (P25, P27, P32, P33); since
+2026-10-29 the stack copies cover the right range (P23 fixed), and the demo's threads take turns (§6); `yield()` already sleeps until the chosen thread is due (A11). Not built: the `NOW`, `SLEEPING` and `WAITING`
 states, which are ranked but never set. Build state: `make build` is clean under `-Werror`; the demo starts its eight
 threads, four of which print once, then `start()` returns after about 0.5 s and `main()` prints "Main thread
 finished." (§3.5). For the ESP32 the library compiles, but
@@ -54,6 +54,9 @@ Development, §0.3). Where this file and the code disagree, the disagreement is 
 | 2026-10-22 | **This specification synced** with `1245c3b` to `fcdb0d0` and the uncommitted changes: decisions A3 and A5 to A10, sections 2.2, 2.3 and 3 rewritten for the code as built, §3.5 the switch in progress, the proposed switch in §3.6 (waiting for Gustavo, D2), the evidence of 2026-10-14 to 2026-10-22 (§6, AddressSanitizer included), P20 and P6 fixed, P23 to P29 new. |
 | 2026-10-23, `93feabe` | **`setNice()`, and `yield()` sleeps until the chosen thread is due (A11, Gustavo).** `thread_item::setNice(ax::time)` (protected) sets the thread's `nice`. When the chosen thread is `RUNNING`, `yield()` computes the ticks left until it is due, `lastRunTime + nice - getTick()` in `ssize_t`, sleeps that long with `sleepTicks()` when it is positive, then `longjmp`s; after the restore it stamps the chosen thread's `lastRunTime` with `getTick()`. `dump_threads()` prints each thread's `nice` and `lastRunTime`; the dump after the sort and the `jmp_buf` dumps are commented out. `main.cpp`: four threads of 500 bytes with nice 500, 1000, 2000 and 5000 ticks and a counter each (100 to 400), whose `run()` prints its counter and yields, forever. *Measured* (§6): only the last thread started keeps running (P24, P25); slices reach 640 bytes for 500-byte buffers (P27); the sleep is not wrap-safe and `ssize_t` does not exist on AVR (P30). |
 | 2026-10-23 | **This specification synced** with the changes of 2026-10-23: A10 and A11, §1, §3.2, §3.5, §3.6, §4, §5 and §6 updated; P23, P24, P25 and P27 re-measured; P30 and P31 new. |
+| 2026-10-29 (uncommitted) | **Debug symbols with `SYMBOLS=1` (A13, Gustavo).** The Makefile adds `-g` only when `SYMBOLS=1` is given, and `make debug` always gives it; `make help` lists it. VS Code: `.vscode/tasks.json` holds the task `make build SYMBOLS=1`, which `.vscode/launch.json` runs before the debugger (it named the task, which did not exist). Proof: in a scratch copy, `atomicx.o` carries DWARF debug information (`__debug_info`) with `SYMBOLS=1` and none without; `make -n` shows `-g` only then. |
+| 2026-10-29 (uncommitted) | **`save` and `restore` copy the slice below the top (P23 fixed, Gustavo).** The stack grows down, so a thread's slice is the `stackSize` bytes **below** `stackTop`, `[stackTop - stackSize, stackTop)`, which `yield()`'s arguments make `[_stk_bottom, _stk_top)`; both functions copied the bytes above it, `[stackTop, stackTop + stackSize)`: the rest of `start()`'s frame and `main()`'s thread objects. Only the two `memcpy` changed; the signatures and every call are as before ("change only the save and restore"). It is atomicx v1's copy, from the low end (`atomicx.cpp:413` and `422-429`). *Measured* (§6), the demo for 12 s with the list checked after every `restore`: before, the list corrupt after the first `restore` and nothing printed after 401; after, 112 restores with the list intact every time, and the four printing threads take turns, each counter going up by one. AddressSanitizer still stops the first `save`, now just past `yield()`'s `dummy`: the slice crosses the redzones it puts around locals, so it cannot check a stack-copy switch. |
+| 2026-10-29 (uncommitted) | **`swap` and the swap sort (A14, Gustavo).** `auto_obj_list::swap(a, b)` (public, `volatile`) relinks two items of a list; `sort` became a stable insertion sort built on it, and its doc comment now describes the three-parameter `cmp` (P28 fixed). Gustavo's suspicion that the merge sort lost the list's end was tested: it did not; the corruption seen in the demo comes from `restore`, which writes back stale bytes over a thread object's `next` and `prev` (P23, *measured*). Proof (§6): 14 swap cases and 20,000 random swap rounds against a model; 20,000 random sorts compared with `std::stable_sort`, every link checked; the schedule order's cases through the new sort; `-Werror` clean. |
 | 2026-10-23, `f656da0` | **Earliest deadline first (A7, Gustavo).** Between threads of the same rank, `compare` now orders by deadline, `lastRunTime + nice`, the earliest first and the most overdue first, wrap-safe (R3.16): each deadline is keyed as `deadline - now + 2^31`, so a plain `<` orders them across the tick wrap. It replaces "due before not due", which put no order among threads that were all due or all not due. Gustavo's report: four `RUNNING` threads with nice 2000, 1000, 500 and 5000, none due, stayed in list order after the sort; the thread with nice 500, due next, should come first. The new order refines the old one: a due thread's deadline is always before a not-due thread's, so only the ties of the old rule change. Proof (§6): Gustavo's dump sorted 500, 5000, 1000, 2000; §3.4's example, the wrap cases and Gustavo's earlier case unchanged; 0 ordering violations in 2000 random rounds. P22 narrowed. |
 | 2026-10-26, `a88952c` | **Fewer traces, `getNice()`, and eight threads in the demo (A10, A11, Gustavo).** Most of the traces are commented out: the "Added…", "Removed…" and "Allocated stack…" lines of the constructors and destructors (the allocation failure still prints on `std::cerr`), `dump_threads()`'s lines about the yielding thread and its context, and every `[YIELD]` step but two, "Stack saved for thread at address: …" after the `save` and "Context restored." after the restore; `yield()` no longer calls `dump_threads()`. `dump_threads()` now prints a header line, one ` * [DUMP]` line per thread and a separator. New: `thread_item::getNice()` (protected, `const`) returns the thread's `nice`. `main.cpp`: the four `MyThreadItem` threads no longer print; four `MySecThreadItem` threads, with the same stacks, nice and counters, print their counter, which now counts up, and their `nice`, and call `yield()` from a member function one call deeper than `run()`. *Measured* (§6): unchanged behaviour, only the last thread started keeps running (P24, P25). |
 | 2026-10-28, `ef5eeee` | **A way back to `start()` ("provisioning commit", Gustavo).** `thread_context` gains `jmp_buf _top_context`, and `thread_item` a `_stk_top` of its own, never set. `yield()` marks its **own** `_stk_bottom` (the slice's size still used the head's); the restore reads the buffer and the size from `_current`. `start()` sorts the context before choosing the first thread, stamps its `lastRunTime` (P31 fixed), calls `setjmp` on `_top_context` and returns false. *Measured*: it does not compile ("use of undeclared identifier 'set_jmp'" and "'dummy'", used before its declaration). |
@@ -109,6 +112,8 @@ schedule order (§3.4); the switch from one thread to the next is work in progre
 | A10 | **Tracing tools while the switch is built** (Gustavo, 2026-10-17, 2026-10-22 and 2026-10-26): `dump_threads()` prints every thread of the context with its state, `nice` and `lastRunTime`; `yield()` prints "Stack saved…" and "Context restored."; `dump_data(data, size, label)` prints memory as a hex dump. Since 2026-10-26 the other traces are commented out, not removed, and `yield()` does not call `dump_threads()`. | Gustavo: so that the schedule order and the switch can be watched while they are built (`2f9a027`); fewer of them so that the demo's own output can be read (2026-10-26). They print with `std::cout`, which adds to P1. |
 | A11 | **A thread sets its own `nice` with `setNice()` and reads it with `getNice()`, and `yield()` sleeps until the chosen thread is due** (Gustavo, 2026-10-23; `getNice()` 2026-10-26). `nice` is how many ticks after its last run a thread becomes due; when the chosen thread is not due yet, `yield()` waits the gap with the program's `sleepTicks()`. | The same as v1's kernel, which sleeps until the earliest wake-up with `Atomicx_SleepTick` (§3.6); `sleepTicks()` is now called by the library. As built, the gap is computed in `ssize_t` from `lastRunTime + nice - getTick()`: not wrap-safe, unlike the schedule order (R3.16), and `ssize_t` does not exist on AVR (P30). |
 | A12 | **The scheduling stays in `yield()`; `start()` is no kernel loop** (Gustavo, 2026-10-28). `yield()` chooses the next thread, starts it or resumes it, and sleeps until it is due; `start()` marks the top of the threads' stack, keeps `_top_context` as the way back to it, and runs the first thread. | Gustavo: "I didn't want to have the loop tied to the start …, it was my original design from the atomicx 1". Rejected: a kernel loop in `start()` that every `yield()` jumps to (built and measured on 2026-10-28, not kept; §6). §3.6 records atomicx v1.3.0's `Start()` as the loop that starts and resumes threads (`atomicx.cpp:320-340`); which v1 design A12 follows is to be recorded by Gustavo (P34). |
+| A13 | **Debug symbols only on request: `SYMBOLS=1`** (Gustavo, 2026-10-29). `-g` is no longer in the default `CFLAGS`; `make build SYMBOLS=1` adds it, and `make debug` always sets it. | Gustavo: build with `SYMBOLS=1` "to enable the symbols", as VS Code's debug launch does. `make debug` sets it itself so that `lldb` never gets a binary without symbols. Rejected: `-g` always, the former default, which would leave the switch without effect. |
+| A14 | **`auto_obj_list::swap(a, b)`, and `sort` built on it** (Gustavo, 2026-10-29): `swap` exchanges the places of two items of a list by relinking them; `sort` is a stable insertion sort that moves each item back with `swap` while it must come before the item in front of it. | Gustavo asked for a `swap` of two items and for `sort` to use it, and suspected that the merge sort lost the null at the end of the list, so the list never reached its end. *Measured*: the merge sort did not (20,000 random lists, 0 corrupted, 0 out of order); the list breaks because `restore` writes stale bytes over a thread object's links (P23). The swap sort is as correct (the same test), keeps the links consistent after every step, and fits a scheduler's list, which stays almost in order between sorts: on 8 threads, 7 comparisons for a list in order (12 with the merge sort) and 13 with one thread out of place (14); 28 for a reversed list (12), its worst case. Rejected: keeping the merge sort, correct but not built on `swap`. |
 
 ### 0.3 Development standards: the definition of done
 
@@ -165,8 +170,8 @@ flowchart LR
    (`#include "atomicx/atomicx.cpp"`), because `arduino-cli` compiles only the sketch folder's own files and its
    `src/` folder, never `atomicx/`; the sketch therefore builds as one unit (a unity build, §8), with no duplicate
    symbols.
-3. **R1.3** The PC build is `g++ -O0 -Wall -g --std=c++11 -Wall -Wextra -Werror` (the Makefile's `CFLAGS`); it must stay
-   free of warnings. The code is C++11: nothing newer may be used.
+3. **R1.3** The PC build is `g++ -O0 -Wall --std=c++11 -Wall -Wextra -Werror` (the Makefile's `CFLAGS`), with `-g` added
+   when `SYMBOLS=1` is given (A13); it must stay free of warnings. The code is C++11: nothing newer may be used.
 
 ### 1.2 Make targets (as built, checked 2026-10-22)
 
@@ -175,16 +180,17 @@ a board, or install and run tools. The table says which ones were checked.
 
 | Target | What it does | State |
 |---|---|---|
-| `make build` (the default) | Cleans, then builds `bin/demo_atomix.bin` from `main.cpp` and `atomicx/atomicx.cpp`. | Clean under `-Werror` (*measured*). |
+| `make build` (the default) | Cleans, then builds `bin/demo_atomix.bin` from `main.cpp` and `atomicx/atomicx.cpp`; `make build SYMBOLS=1` adds debug symbols (A13). | Clean under `-Werror` (*measured*). |
 | `make run` | `build`, then runs the demo. | Never returns: the threads loop forever, and only the last one started keeps running (§3.5). |
-| `make debug` | `build`, then opens the demo in `lldb`. | Not checked. |
+| `make debug` | `build` with `SYMBOLS=1`, then opens the demo in `lldb`. | Not checked. |
 | `make nano`, `make nano_flash` | `arduino-cli compile --upload` of `arduino/simple` for the Nano (serial port or USBasp). | Fails: AVR has no `<iostream>` (P1). |
 | `make nodemcu` | The same for the ESP8266 NodeMCU. | Not checked: the ESP8266 core is not installed here. |
 | `make bootloader_nano`, `make install_arduino_cli` | Burn the Nano's bootloader; install `arduino-cli` and its cores with Homebrew. | Not checked. |
 | `make document` | Runs `Doxygen`. | No Doxyfile in the repository (P15). |
 | `make depend`, `make clean`, `make help` | `makedepend`; remove the objects and the binary; list the targets. | `clean` and `help` work. |
 
-The ESP32 has no target in the Makefile; the sketch compiled for it with `arduino-cli compile --fqbn
+In VS Code, `.vscode/launch.json` debugs the demo after the task `make build SYMBOLS=1` of `.vscode/tasks.json`; both
+files stay local, because `.gitignore` ignores `.vscode` (P18). The ESP32 has no target in the Makefile; the sketch compiled for it with `arduino-cli compile --fqbn
 esp32:esp32:esp32` once `setup()` and `loop()` were added to a copy (§6, P3).
 
 ---
@@ -227,10 +233,11 @@ sequenceDiagram
 | `item()` | deleted | An item always belongs to a list. |
 | `~item()` | public | Unlinks the item (`remove`) and prints `Removed item from parent list at address: <this>`. |
 | `getNextItem(item* current) const`, `getPrevItem(item* current) const` | public | Return `current->next`, `current->prev`, or `nullptr` when `current` is null. They read their argument, not `this` (P10). |
-| `next`, `prev` (`item*`, default `nullptr`); `parent` (`volatile auto_obj_list&`) | protected, in `item`; `auto_obj_list` is a friend of `item` | The links, set by `add` and `remove` and rewritten by `sort`, and the list the item belongs to, bound by the constructor; visible to every class derived from `item`. |
+| `next`, `prev` (`item*`, default `nullptr`); `parent` (`volatile auto_obj_list&`) | protected, in `item`; `auto_obj_list` is a friend of `item` | The links, set by `add` and `remove` and rewritten by `swap`, and the list the item belongs to, bound by the constructor; visible to every class derived from `item`. |
 | `isEmpty() const` | public | True when `head` is null. |
-| `count() const volatile` | public | Walks the whole list: O(n). |
+| `count() const volatile` | public | Returns `_count`, which `add` and `remove` keep: O(1). |
 | `getHeadItem() const`, `getTailItem() const` | public | The first and the last item, or `nullptr`. |
+| `swap(item* a, item* b) volatile` | public | Swaps the positions of two items of this list by relinking them; no object is copied. Returns false when an item is null or belongs to another list; true otherwise, also when `a` is `b`. Mends `head` and `tail` (A14). |
 | `sort(Compare cmp, Data data) volatile` | public, template | §2.3. |
 | `add(item*) volatile`, `remove(item*) volatile` | protected | Append at the tail; unlink and mend `head` and `tail`. Both return false only for a null pointer. Only `item`'s constructor and destructor call them. |
 | copy constructor and copy assignment of `item` and of `auto_obj_list` | public, implicit | Not declared; the compiler provides them (R2.5, R2.6). |
@@ -249,35 +256,38 @@ sequenceDiagram
 
 ### 2.3 Sorting: `sort(cmp, data)`
 
-**In plain words.** `sort` reorders the items by changing their links; no object is copied and no memory is taken.
-You give it `cmp`, the rule that says which of two items comes first, and `data`, anything `cmp` needs to decide (the
-schedule order passes the thread that holds now). It is a **stable** sort: two items that `cmp` calls equal keep the
-order they had.
+**In plain words.** `sort` reorders the items with `swap`: no object is copied and no memory is taken. You give it
+`cmp`, the rule that says which of two items comes first, and `data`, anything `cmp` needs to decide (the schedule
+order passes the thread that holds now). It walks the list once; each item moves back, one swap at a time, while it
+must come before the item in front of it. It is a **stable** sort: an item never passes one that `cmp` calls equal,
+so equal items keep the order they had.
 
 ```
 keys in the list:   3   1   2   1'          (1 and 1' are equal keys; 1 was constructed first)
 
-width 1:  merge [3] with [1]      -> [1 3]      merge [2] with [1']  -> [1' 2]
-width 2:  merge [1 3] with [1' 2] -> [1 1' 2 3]
-                                      ^ 1 stays before 1': on a tie the left run's item is taken
+1 :  1 < 3, swap                 -> 1  3  2  1'
+2 :  2 < 3, swap; 2 < 1? no      -> 1  2  3  1'
+1':  1' < 3, swap; 1' < 2, swap;
+     1' < 1? no: equal, it stops -> 1  1' 2  3       (1 stays before 1')
 ```
 
 **Exact rules.**
 
 1. **R2.7** `cmp(a, b, data)` returns true when `a` must come **strictly** before `b`, like `operator<` (a strict weak
-   ordering). `sort` calls it as `cmp(*right, *left, data)` and takes the right run's item only when it is strictly
-   smaller, so `cmp` must return false for equal items, or the sort is no longer stable.
+   ordering). `sort` calls it as `cmp(*current, *current->prev, data)` and swaps the two only when `current` is
+   strictly smaller, so `cmp` must return false for equal items, or the sort is no longer stable.
 2. **R2.8** `cmp` receives the items as `auto_obj_list::item`. To reach a derived class's data it casts,
    `static_cast<const my_type&>(a)`, which is valid only when every item in that list is a `my_type`.
-3. **R2.9** Bottom-up merge sort over runs of width 1, 2, 4, …: O(n log n) comparisons, O(1) extra memory, no
-   recursion; one `count()` per call; the `prev` links and `tail` are rebuilt at the end. `data` is copied by value
-   into every call of `cmp`, so it should be small: a pointer or a number.
+3. **R2.9** Insertion sort by `swap` (A14): n - 1 comparisons on a list already in order, at most n(n - 1)/2 swaps
+   and about as many comparisons at worst; O(1) extra memory, no recursion; the links, `head` and `tail` stay
+   consistent after every swap. `data` is copied by value into every call of `cmp`, so it should be small: a pointer
+   or a number.
 4. **R2.10** C++11: `cmp` may be a function pointer, a functor or a lambda with typed parameters (generic lambdas are
    C++14); it always takes three parameters, the third of the type of `data`.
 
-*Measured* (2026-10-13, the two-parameter `sort` of the time): keys 3, 1, 2, 1 became 1, 1, 2, 3 with the two 1s in
-construction order, and `getTailItem()` was the 3. The doc comment above `sort` in `atomicx.h` still describes a
-two-parameter `cmp` (P28). `yield()` is the only caller.
+*Measured* (2026-10-29, §6): 20,000 random lists of 0 to 14 items with repeated keys, each sorted and compared with
+`std::stable_sort`, with every link checked: 0 corrupted, 0 out of order, for the merge sort that came before and for
+this one. `yield()` and `start()` are the callers.
 
 ---
 
@@ -433,10 +443,12 @@ flowchart TD
    not `READY`, or overflows its buffer (P32).
 3. **R3.11** Every item in a `thread_context` must be a `thread_item`: `start()`, `compare` and `yield()` cast without
    checking. The types do not enforce it (P11).
-4. **R3.12** `save(stackTop, vStackPointer, size)` copies `size` bytes from `stackTop` into the buffer
-   `vStackPointer`; `restore(stackTop, vStackPointer, size)` copies them back. Both are protected and `volatile`, and
-   take `volatile size_t*` arguments. As built they are given `_stk_top` as `stackTop`, so they copy the bytes
-   **above** the top of the threads' stack (P23).
+4. **R3.12** `save(stackTop, vStackPointer, size)` copies the `size` bytes below `stackTop`,
+   `[stackTop - size, stackTop)`, into the buffer `vStackPointer`; `restore(stackTop, vStackPointer, size)` copies
+   them back to the same addresses. Both are protected and `volatile`, and take `volatile size_t*` arguments.
+   `yield()` gives them `_stk_top` and `_stk_top - _stk_bottom`, so they copy `[_stk_bottom, _stk_top)`, the
+   threads' slice (P23 fixed on 2026-10-29). This assumes one stack that grows down, as atomicx v1 does; C++ does
+   not guarantee it, and every target of §1 has it.
 5. **R3.13** `_current` (protected, `thread_item*`) is the thread `yield()` chose last; `_stk_top` (protected,
    `volatile char*`) is the top mark set by `start()`; `_top_context` (protected, `jmp_buf`) holds `start()`'s registers, the way back to
    it (A12). `thread_item` is a friend of `thread_context`, so
@@ -544,7 +556,7 @@ flowchart TD
     c -->|first return| d["mark this thread's stack bottom"]
     d --> o{"slice larger than _stackSize?"}
     o -->|yes| s["print STACK OVERFLOW, longjmp to _top_context"]
-    o -->|no| v["save from _stk_top into this thread's buffer, print Stack saved"]
+    o -->|no| v["save the slice below _stk_top into this thread's buffer, print Stack saved"]
     v --> e{"state of the head"}
     e -->|READY| g["RUNNING, lastRunTime = getTick, call its run"]
     g --> h["TERMINATED, start over"]
@@ -576,9 +588,12 @@ last thread started forever instead: that `longjmp` landed in the `setjmp` of th
    started before it (P25).
 2. `setjmp` goes to the head's `_register_context`, not the yielding thread's (P24); no `longjmp` targets it any
    more, so the restore branch is never reached, and a `RUNNING` head ends the system (P32).
-3. `save` and `restore` copy from `_stk_top` upward, the bytes above the threads' stack (P23); `_stk_top` is the
-   address of a variable whose block has ended (P33). AddressSanitizer stops the first `save`:
-   "stack-use-after-scope … READ of size 416" (2026-10-28).
+3. Since 2026-10-29, `save` and `restore` copy `[_stk_bottom, _stk_top)`, below the top (P23 fixed); until then
+   they copied from `_stk_top` upward, the bytes above the threads' stack. `_stk_top` is still the address of a
+   variable whose block has ended (P33). AddressSanitizer stops the first `save`: "stack-use-after-scope … READ of
+   size 416" at `start()`'s `dummy` (2026-10-28); "stack-buffer-overflow … READ of size 416" just past `yield()`'s
+   `dummy` with the fix (2026-10-29), where the slice starts: a stack-slice copy crosses the redzones it puts around
+   locals, so it cannot check this switch.
 4. The slice is compared with `_stackSize`, but `_stackSize` is 8 times the buffer: the check lets a slice of up to
    4,000 bytes into a 500-byte buffer (P27).
 5. The restore would read `_v_stackPointer` from `_current` and the size from `thread_item::_stk_top`, which is
@@ -644,7 +659,7 @@ sequenceDiagram
 | `thread_context::start()` | `atomicx::Start()`, the kernel loop | v1's returns only when no thread can run; AtomicX 2's has no loop yet. |
 | `thread_item::yield()` | `atomicx::Yield()` | Work in progress (§3.5). |
 | `thread_item::compare` | `SelectNextThread()`: `start` or `now` threads first, in list order, then the earliest wake-up | AtomicX 2 ranks by state, then orders every rank by the earliest deadline, wrap-safe; v1 compares absolute deadlines and does not handle the wrap (A7). |
-| `save`, `restore` | the two `memcpy` of `Yield()` | AtomicX 2's copy from the wrong end (P23). |
+| `save`, `restore` | the two `memcpy` of `Yield()` | Both copy from the low end, as v1 does, since 2026-10-29 (P23 fixed). |
 | `_v_stackPointer`, `stackSize` | `m_stack`, `m_stackSize` | v1's template constructor stores the element count in `m_stackSize` and compares it with a byte count: exact only for byte arrays, which every v1 example uses. AtomicX 2's buffer is in bytes; `stackSize` is not (P27). |
 | `_stk_top`, `_stk_bottom` | `m_pStaskStart`, `m_pStaskEnd` | v1 keeps both ends on the thread; AtomicX 2 keeps the top on the context. |
 | `_register_context`, `_current` | `m_context`, `ms_pCurrent` | v1 also has the kernel's own `jmp_buf`, `ms_joinContext`; AtomicX 2 has none yet. |
@@ -765,6 +780,13 @@ All runs from 2026-10-13 to 2026-10-23: macOS with Apple clang 21 (the Makefile'
 | The PC demo under AddressSanitizer (`-fsanitize=address`) | — | stops at the first switch: "stack-buffer-overflow … READ of size 160" (2026-10-22) and "READ of size 192" (2026-10-23) in `thread_context::save`; "stack-use-after-scope … READ of size 416" (2026-10-28), also in `save`, called from `yield()`, at an address inside `start()`'s frame (P23) |
 | `ssize_t` on the targets (A11) | — | defined on the PC and on the ESP32 (newlib: `typedef _ssize_t ssize_t;`); defined nowhere in the AVR toolchain's headers (avr-gcc 7.3) |
 | ESP32, the probe sketch, code of 2026-10-14 (the two-parameter `compare`), `--warnings all` | — | 522,313 bytes of flash, 29,288 bytes of RAM, no warning from AtomicX |
+| `sort` integrity (A14): 20,000 random lists of 0 to 14 items, keys 0 to 4, compared with `std::stable_sort`; forward and backward walks, `prev` links, null ends, `tail`, `count()` | the merge sort (`e6e9d97`): 0 corrupted, 0 out of order | the swap sort: 0 corrupted, 0 out of order |
+| `swap` (A14): neighbours in both orders, one item between, far apart, head and tail in both orders, an item with itself, two items, a null item, items of two lists; then 20,000 rounds of 8 random swaps against a model | — | all cases right; 0 of 20,000 rounds wrong |
+| Comparisons of one `sort` on 8 threads (A14): in order; one thread out of place; reversed | merge sort: 12; 14; 12 | swap sort: 7; 13; 28 |
+| The schedule order through the swap sort (A7, A14): §3.4's example, `RUNNING` before `TERMINATED`, one thread of each state, the tick wrap | — | C D B A E; Y Z X T; R N U W S K; Y X |
+| Where the demo's list breaks (P23), code of `e6e9d97` with a check after `restore` | — | the list is corrupt after the first `restore`; it wrote `[0x…df37, 0x…dfb7)`, which holds the `next` (`0x…dfa8`) and `prev` (`0x…dfb0`) of the thread object at `0x…dfa0` |
+| The slice range fix (P23, 2026-10-29): the working copy with a check after every `restore` (the list walked from the head, every `prev` and `tail` checked), the demo for 12 s | `save` copies `[0x…1f27, 0x…1fa7)` and `[0x…1f27, 0x…1fd7)`, above the top (another run, so other addresses); 1 restore, the list corrupt after it; counters 100, 200, 300, 400 and 401, then nothing more | `save` copies `[0x…9e77, 0x…9f27)` and `[0x…9ea7, 0x…9f27)`, below the top (176 and 128 bytes); 112 restores, the list intact after each, no overflow message; counters 100 to 139, 200 to 216, 300 to 310 and 400 to 404, each going up by one; `make build` clean under `-Werror` |
+| AddressSanitizer with the slice range fix (2026-10-29) | "stack-use-after-scope … READ of size 416" in `save`, at `start()`'s `dummy` | "stack-buffer-overflow … READ of size 416" in `save`, at the byte after `yield()`'s `dummy`, where the slice starts; its own hint: "this may be a false positive if your program uses some custom stack unwind mechanism" |
 
 The probe sketch is `arduino/simple/simple.ino` with this added (written for the two-parameter `sort` of the time):
 
@@ -832,18 +854,19 @@ the history, or reading the code).
 | P20 | *Fixed in `1245c3b`*: `make build` failed since A6, because `_l_stackPointer` and `_parent` were private and never used. | `-Werror,-Wunused-private-field` (§6). | The PC demo did not build. |
 | P21 | `auto_obj_list`, and so `thread_context`, can be copied (R2.6). | *measured*: a context passed by value compiles without a warning; after a copy, destroying a thread leaves the copy's `head` pointing at it. | A context copied by mistake holds dangling pointers. |
 | P22 | Threads with the same rank and the same deadline keep the list's order. (Ordering by deadline is built since 2026-10-23, and reading now once per sort since `1245c3b`: A7, R3.16, R3.17.) Proposed, waiting for Gustavo: breaking the tie by the least recently run. | A7, R3.18. | Equal threads are not rotated: of two threads with the same deadline, the first in list order always comes first. |
-| P23 | `save` and `restore` are given `_stk_top` as the start of the slice, so they copy `[_stk_top, _stk_top + size)`, the bytes above the threads' stack; the slice is `[_stk_bottom, _stk_top)`. | AddressSanitizer: "stack-buffer-overflow … READ of size 160" (2026-10-22) and 192 (2026-10-23) in `save`, inside `start()`'s frame; "stack-use-after-scope … READ of size 416" (2026-10-28) (§6). | `save` stores the wrong bytes, and `restore` would overwrite `start()`'s and `main()`'s frames. |
+| P23 | *Fixed on 2026-10-29*: `save` and `restore` copy the `size` bytes below `stackTop` (R3.12). They were given `_stk_top` as the start of the slice, so they copy `[_stk_top, _stk_top + size)`, the bytes above the threads' stack; the slice is `[_stk_bottom, _stk_top)`. | AddressSanitizer: "stack-buffer-overflow … READ of size 160" (2026-10-22) and 192 (2026-10-23) in `save`, inside `start()`'s frame; "stack-use-after-scope … READ of size 416" (2026-10-28) (§6). On 2026-10-29, a check after `restore` found the list corrupt after the first one: it had written back a thread object's `next` and `prev` (§6). | `save` stores the wrong bytes, and `restore` would overwrite `start()`'s and `main()`'s frames. |
 | P24 | `yield()` saves registers with `setjmp` into the next thread's `_register_context`, not its own. Since `ef5eeee` the bottom mark is its own. | `yield()`'s code; *measured* until 2026-10-26: each `longjmp` on that `jmp_buf` was followed by a restore in the same call. Since 2026-10-28 no `longjmp` targets it (P32). | A paused thread's registers are never saved, so it cannot be resumed. |
 | P25 | A new thread's `run()` is called from inside the yielding thread's `yield()`. | *measured*: slices of 112, 240, 368 and 496 bytes (2026-10-22), of 112, 288, 464 and 640 bytes (2026-10-23): a fixed step more for each thread started. | Threads run nested: each slice holds the frames of every thread started before it, and a finished thread returns into the `yield()` of the thread that started it. |
 | P26 | After the `longjmp`, the restore reads `_v_stackPointer` and `current` from the frame it is about to overwrite. | `yield()`'s code. | In a real switch, the restore would use another thread's data: it must read only data outside the stack until the copy is done (§3.6, proposed step 4). |
 | P27 | `_stackSize` (`stackSize` until 2026-10-28) is `stack_size * sizeof(size_t)` while the buffer holds `stack_size` bytes. Since 2026-10-28 `yield()` compares the slice with it. | The constructor; *measured*: slices of 368 and 496 bytes for 250-byte buffers (2026-10-22), of 640 bytes for 500-byte buffers (2026-10-23); no overflow message for 500-byte buffers on 2026-10-28, where the limit is 4,000 bytes. | The check lets `save` write up to 8 times past the end of the buffer on a 64-bit PC. |
-| P28 | The doc comment above `sort` in `atomicx.h` describes `cmp` as `bool cmp(const item& a, const item& b)`. | The header. | The comment does not describe the three-parameter `sort` (D4). |
+| P28 | *Fixed on 2026-10-29 (A14)*: the doc comment above `sort` in `atomicx.h` described `cmp` as `bool cmp(const item& a, const item& b)`. | The header. | The comment does not describe the three-parameter `sort` (D4). |
 | P29 | `NOW`, `SLEEPING` and `WAITING` are ranked by `compare` but never set. | §5. | Their place in the schedule order is defined, their meaning is not. |
 | P30 | `yield()` computes the time to sleep as `(ssize_t)lastRunTime + (ssize_t)nice - getTick()`: not wrap-safe, unlike the schedule order (R3.16), and `ssize_t` is POSIX, not C++11. | `yield()`'s code; the AVR toolchain's headers define no `ssize_t` (§6). The PC demo's `getTick()` is epoch milliseconds cut to 32 bits (about 1.77e9 on 2026-10-23), so its tick wraps for real every 49.7 days. | On the PC (64-bit `ssize_t`), when a thread's last run is before the wrap and now after it, the gap reads as about 2^32 ticks: the program would sleep about 49.7 days. It does not compile on AVR. |
 | P31 | *Fixed in `ef5eeee`*: `start()` did not stamp the first thread's `lastRunTime`, which stayed 0. | `start()`'s code; *measured* before: the first computed gap was -1,769,946,455 ticks (§6). | The first thread looked long overdue until it was chosen. |
 | P32 | When `yield()` chooses a `RUNNING` thread, it sleeps until that thread is due and then `longjmp`s to `_top_context`: `start()` returns false and the system ends. Nothing resumes a paused thread; the restore branch of `yield()` is never reached. | `yield()`'s code (2026-10-28); *measured*: the demo ends after about 0.5 s, each thread having run once (§6). | No thread runs twice. |
-| P33 | `start()` sets `_stk_top` to the address of a `volatile char` declared in an inner block, whose lifetime has ended when it is used; the restore's size uses `thread_item::_stk_top`, which is never set (null). | `start()`'s and `yield()`'s code (2026-10-28); AddressSanitizer: "stack-use-after-scope" in `save` (§6). | The top mark is an address the compiler may reuse; a reached restore would copy about the whole address range below `_stk_top`. |
+| P33 | `start()` sets `_stk_top` to the address of a `volatile char` declared in an inner block, whose lifetime has ended when it is used. Until `e6e9d97` the restore's size used `thread_item::_stk_top`, never set (null); it uses `_context._stk_top` since. | `start()`'s and `yield()`'s code (2026-10-28); AddressSanitizer: "stack-use-after-scope" in `save` (§6). | The top mark is an address the compiler may reuse. |
 | P34 | A12's reference, "my original design from the atomicx 1", is not recorded; §3.6 cites v1.3.0's `Start()` as the loop that starts and resumes threads. | A12, §3.6. | Which v1 design `yield()` follows, and so what §3.6 should describe, is unclear. |
+| P35 | This specification is not synced with `e6e9d97` ("saving", 2026-10-28). There, a `READY` head is started by a `longjmp` to `_top_context` with 1, after which `start()` runs it from its own frame; a `RUNNING` head is resumed by a `longjmp` to its own `_register_context` after the sleep; an overflow `longjmp`s with 3 and any other state with 2, and `start()` returns false only for values above 1; `arduino/simple/simple.ino` gained 90 lines, not checked. | `git show e6e9d97`. | §3.3, §3.5 (its flowchart and the demo's picture), and P24, P25 and P32 describe the code before it (D4). |
 
 ---
 

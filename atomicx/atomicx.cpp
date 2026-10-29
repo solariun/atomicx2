@@ -118,6 +118,45 @@ namespace ax {
 
     auto_obj_list::item* auto_obj_list::getTailItem() const { return tail; }
 
+    bool auto_obj_list::swap(item* a, item* b) volatile
+    {
+        if (!a || !b || &a->parent != this || &b->parent != this) return false;
+        if (a == b) return true;
+
+        // Neighbours are handled as a before b
+        if (b->next == a) { item* first = b; b = a; a = first; }
+
+        item* a_prev = a->prev;
+        item* a_next = a->next;
+        item* b_prev = b->prev;
+        item* b_next = b->next;
+
+        if (a_next == b)
+        {
+            a->prev = b;
+            a->next = b_next;
+            b->prev = a_prev;
+            b->next = a;
+        }
+        else
+        {
+            a->prev = b_prev;
+            a->next = b_next;
+            b->prev = a_prev;
+            b->next = a_next;
+            if (a_next) a_next->prev = b;
+            if (b_prev) b_prev->next = a;
+        }
+
+        if (a_prev) a_prev->next = b;
+        if (b_next) b_next->prev = a;
+
+        if (head == a) head = b; else if (head == b) head = a;
+        if (tail == a) tail = b; else if (tail == b) tail = a;
+
+        return true;
+    }
+
     bool auto_obj_list::add(item* newItem) volatile
     {
         if (!newItem) return false;
@@ -352,15 +391,15 @@ namespace ax {
 
     void thread_context::save (volatile size_t* stackTop, volatile size_t* stackPointer, size_t stackSize) volatile
     {
-        // Save the current stack contents to the provided stackTop location
-        memcpy((void*)stackPointer, (void*)stackTop, stackSize);
+        // The stack grows down: the slice is the stackSize bytes below stackTop
+        memcpy((void*)stackPointer, (void*)((volatile char*)stackTop - stackSize), stackSize);
         return;
     }
 
     void thread_context::restore (volatile size_t* stackTop, volatile size_t* stackPointer, size_t stackSize) volatile
     {
-        // Restore the stack contents from the provided stackTop location
-        memcpy((void*)stackTop, (void*)stackPointer, stackSize);
+        // The stack grows down: the slice is the stackSize bytes below stackTop
+        memcpy((void*)((volatile char*)stackTop - stackSize), (void*)stackPointer, stackSize);
         return;
     }
 }

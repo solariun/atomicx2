@@ -26,7 +26,10 @@ CC = g++
 
 # define any compile-time flags
 #CFLAGS = -Ofast -Wall -g --std=c++11 -Wall -Wextra -Werror
-CFLAGS = -O0 -Wall -g --std=c++11 -Wall -Wextra -Werror
+CFLAGS = -O0 -Wall --std=c++11 -Wall -Wextra -Werror
+
+# SYMBOLS=1 adds debug symbols (-g); make debug always sets it
+CFLAGS += $(if $(filter 1,$(SYMBOLS)),-g)
 
 # define the directory for atomicx
 ifndef CPX_DIR
@@ -60,6 +63,7 @@ build: clean $(MAIN)
 help:
 	@echo "Makefile Usage:"
 	@echo "  make build                - Build the executable file 'bin/demo_atomix.bin'"
+	@echo "  make build SYMBOLS=1      - The same, with debug symbols (-g)"
 	@echo "  make clean                - Remove all .o and executable files"
 	@echo "  make debug                - Build and debug the executable file 'bin/demo_atomix.bin' using lldb"
 	@echo "  make run                  - Build and run the executable file 'bin/demo_atomix.bin'"
@@ -72,6 +76,7 @@ help:
 	@echo "  make document             - Generate documentation using Doxygen"
 
 # Target to build and debug the executable
+debug: SYMBOLS = 1
 debug: clean $(MAIN)
 	@echo  Debugging AtomicX binary $(MAIN)
 	lldb ./$(MAIN)
