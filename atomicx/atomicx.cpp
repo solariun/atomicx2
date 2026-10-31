@@ -324,7 +324,7 @@ namespace ax {
 
     void thread_item::setNice(ax::time nice)
     {
-        _data.nice = (volatile ax::time)nice;
+        _data.nice = nice;
     }
 
     ax::time thread_item::getNice() const
