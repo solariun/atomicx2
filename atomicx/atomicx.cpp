@@ -48,30 +48,38 @@
 #include <new>
 
 #ifdef ARDUINO
+// AX_F("text") keeps a literal in flash on Arduino (F()); elsewhere it is the literal itself
+#define AX_F(text) F(text)
+
 // Serial has no operator<<: each piece goes to Serial.print
 struct serial_stream
 {
+    serial_stream& operator<<(const __FlashStringHelper* text) { Serial.print(text); return *this; }
     serial_stream& operator<<(const char* text) { Serial.print(text); return *this; }
     serial_stream& operator<<(char value) { Serial.print(value); return *this; }
     serial_stream& operator<<(int value) { Serial.print(value); return *this; }
     serial_stream& operator<<(unsigned int value) { Serial.print(value); return *this; }
     serial_stream& operator<<(long value) { Serial.print(value); return *this; }
     serial_stream& operator<<(unsigned long value) { Serial.print(value); return *this; }
-    serial_stream& operator<<(const volatile void* address) { Serial.print("0x"); Serial.print((unsigned long)(uintptr_t)address, HEX); return *this; }
+    serial_stream& operator<<(const volatile void* address) { Serial.print(F("0x")); Serial.print((unsigned long)(uintptr_t)address, HEX); return *this; }
 };
+#else
+#define AX_F(text) text
 #endif
 
-// LOG_ERROR(a << b); always prints one line: std::cerr on the PC, Serial on Arduino
+// LOG_ERROR(AX_F("text ") << value); always prints one line: std::cerr on the PC, Serial on Arduino
 #ifdef ARDUINO
 #define LOG_ERROR(...) do { serial_stream() << __VA_ARGS__; Serial.println(); } while (0)
 #else
 #define LOG_ERROR(...) do { std::cerr << __VA_ARGS__ << std::endl; } while (0)
 #endif
 
-// TRACE(a << b); prints one line with TRACE_ON; without it, the preprocessor removes the call and its arguments
+// TRACE(AX_F("text ") << value); prints one line with TRACE_ON; without it, the preprocessor removes the call and its arguments
 #ifdef TRACE_ON
 #ifdef ARDUINO
-#define TRACE(...) do { serial_stream() << "[TRACE] " << __FILE__ << ":" << __LINE__ << " - " << __VA_ARGS__; Serial.println(); } while (0)
+// One copy of the file name in flash, not one per call
+static const char k_trace_file[] PROGMEM = __FILE__;
+#define TRACE(...) do { serial_stream() << F("[TRACE] ") << (const __FlashStringHelper*)k_trace_file << ':' << __LINE__ << F(" - ") << __VA_ARGS__; Serial.println(); } while (0)
 #else
 #define TRACE(...) do { std::cout << "[TRACE] " << __FILE__ << ":" << __LINE__ << " - " << __VA_ARGS__ << std::endl; } while (0)
 #endif
@@ -96,7 +104,7 @@ namespace ax {
 
         const unsigned char* bytes = static_cast<const unsigned char*>(data);
 
-        if (label) TRACE("[" << label << "]:");
+        if (label) TRACE(AX_F("[") << label << AX_F("]:"));
 
         for (size_t line = 0; line < size; line += k_bytes_per_line)
         {
@@ -142,13 +150,13 @@ namespace ax {
     auto_obj_list::item::item(auto_obj_list& parent) : parent(parent)
     { 
         parent.add(this); 
-        //TRACE("Added item to parent list at address: " << this);
+        //TRACE(AX_F("Added item to parent list at address: ") << this);
     }
 
     auto_obj_list::item::~item()
     { 
         parent.remove(this);
-        // TRACE("Removed item from parent list at address: " << this);
+        // TRACE(AX_F("Removed item from parent list at address: ") << this);
     }
 
     auto_obj_list::item* auto_obj_list::item::getNextItem(item* current) const { return current ? current->next : nullptr; }
@@ -233,10 +241,10 @@ namespace ax {
     {
 
         if (!this->_v_stackPointer) {
-            LOG_ERROR("Failed to allocate stack for thread item.");
+            LOG_ERROR(AX_F("Failed to allocate stack for thread item."));
             _stackSize = 0;
         } else {
-            // TRACE(">>> Allocated stack for thread item at address: " << this->_v_stackPointer << " with size: " << stack_size);
+            // TRACE(AX_F(">>> Allocated stack for thread item at address: ") << this->_v_stackPointer << AX_F(" with size: ") << stack_size);
         }
     }
 
@@ -302,24 +310,24 @@ namespace ax {
     {   
         const thread_item* current = static_cast<const thread_item*>(_context.getHeadItem());
         
-        // TRACE("[DUMP] Yielding thread at address: " << (const void*)this);
-        // TRACE("[DUMP] Stack pointer set to: " << (const void*)_stk_bottom);
-        // TRACE("[DUMP] Virtual stack pointer: " <<(const void*)(_v_stackPointer));
-        // TRACE("[DUMP] Current time: " << _data.tm_now);
-        // TRACE("[DUMP] Nice value: " << _data.nice);
-        // TRACE("[DUMP] Last run time: " << _data.lastRunTime);
-        // TRACE("[DUMP] State: " << static_cast<int>(_data.state));
-        // TRACE("[DUMP] Parent context address: " << &_context);
-        // TRACE("[DUMP] Head item address: " << _context.getHeadItem());
-        // TRACE("[DUMP] Tail item address: " << _context.getTailItem());
+        // TRACE(AX_F("[DUMP] Yielding thread at address: ") << (const void*)this);
+        // TRACE(AX_F("[DUMP] Stack pointer set to: ") << (const void*)_stk_bottom);
+        // TRACE(AX_F("[DUMP] Virtual stack pointer: ") <<(const void*)(_v_stackPointer));
+        // TRACE(AX_F("[DUMP] Current time: ") << _data.tm_now);
+        // TRACE(AX_F("[DUMP] Nice value: ") << _data.nice);
+        // TRACE(AX_F("[DUMP] Last run time: ") << _data.lastRunTime);
+        // TRACE(AX_F("[DUMP] State: ") << static_cast<int>(_data.state));
+        // TRACE(AX_F("[DUMP] Parent context address: ") << &_context);
+        // TRACE(AX_F("[DUMP] Head item address: ") << _context.getHeadItem());
+        // TRACE(AX_F("[DUMP] Tail item address: ") << _context.getTailItem());
 
-        TRACE("[DUMP] Dumping all threads in the parent context:");
+        TRACE(AX_F("[DUMP] Dumping all threads in the parent context:"));
         while (current)
         {
-            TRACE(" * [DUMP] Thread at address: " << current << " State: " << static_cast<int>(current->_data.state) << " Nice: " << current->_data.nice << " Last run time: " << current->_data.lastRunTime);
+            TRACE(AX_F(" * [DUMP] Thread at address: ") << current << AX_F(" State: ") << static_cast<int>(current->_data.state) << AX_F(" Nice: ") << current->_data.nice << AX_F(" Last run time: ") << current->_data.lastRunTime);
             current = static_cast<const thread_item*>(current->next);
         }
-        TRACE("[DUMP] --------------------------------");
+        TRACE(AX_F("[DUMP] --------------------------------"));
     }
 
     void thread_item::setNice(ax::time nice)
@@ -332,6 +340,11 @@ namespace ax {
         return _data.nice;
     }
     
+    ssize_t thread_item::getUsedStackSize() const
+    {
+        return _context._stk_top - _context._current->_stk_bottom;
+    }
+
     void thread_item::yield()
     {
         _data.tm_now = getTick();
@@ -346,33 +359,34 @@ namespace ax {
         if (next != nullptr)
         {
             auto* current = _context._current = next;
-
+            volatile char dummy = 0xAA;
+            
             if (setjmp(current->_register_context) == 0)
             {
                 // dump_data(current->_register_context, sizeof(current->_register_context), "Set Jump Context");
         
-                volatile char dummy = 0xAA;
                 _stk_bottom =  &dummy;
+
 
                 size_t usedStackSize = _context._stk_top - _stk_bottom;
 
                 if (usedStackSize > _stackSize)
                 {
-                    LOG_ERROR("[YIELD] *** STACK OVERFLOW ***: Used stack size exceeds allocated stack size. max: " << _stackSize << " used: " << usedStackSize << ", diff:" << (usedStackSize - _stackSize));
+                    LOG_ERROR(AX_F("[YIELD] *** STACK OVERFLOW ***: Used stack size exceeds allocated stack size. max: ") << _stackSize << AX_F(" used: ") << usedStackSize << AX_F(", diff:") << (usedStackSize - _stackSize));
+                    StackOverflow();
                     longjmp(_context._top_context, 3);
                 }
 
                 _context.save((volatile size_t*) _context._stk_top, (volatile size_t*) _v_stackPointer, usedStackSize);
-                TRACE("[YIELD] Stack saved for thread at address: " << current);
+                TRACE(AX_F("[YIELD] Stack saved for thread at address: ") << current);
 
                 if (current->_data.state == ax::State::READY)
                 {
-                    TRACE("[YIELD] Next thread is ready to run.");
+                    TRACE(AX_F("[YIELD] Next thread is ready to run."));
                     longjmp(_context._top_context, 1);
                     exit(EXIT_FAILURE);
                 } else if (current->_data.state == ax::State::RUNNING) {
                     // dump_data(current->_register_context, sizeof(current->_register_context), "Register Context");
-                    fflush(stdout);
                     
                     // Sleep until the thread is due; ticks wrap, so the distance is taken modulo the tick range (R3.16)
                     ax::time remaining = (ax::time)(current->_data.lastRunTime + current->_data.nice - ax::getTick());
@@ -381,18 +395,18 @@ namespace ax {
                         ax::sleepTicks(remaining);
                     }
                     
-                    TRACE("[YIELD] Woke up from sleep, resuming thread.");
+                    TRACE(AX_F("[YIELD] Woke up from sleep, resuming thread."));
                     longjmp(current->_register_context, 1);
                     exit(EXIT_FAILURE);
                 } else {  
-                    TRACE("[YIELD]  **** Next thread is not ready to run. ****");
+                    TRACE(AX_F("[YIELD]  **** Next thread is not ready to run. ****"));
                     longjmp(_context._top_context, 2);    
                     exit(EXIT_FAILURE);
                 }
             } else {
-                //TRACE("[YIELD] Returning to previously saved context.");
-                _context.restore((volatile size_t*) _context._stk_top, (volatile size_t*) _context._current->_v_stackPointer, _context._stk_top - _context._current->_stk_bottom);
-                TRACE("[YIELD] Context restored.");
+                //TRACE(AX_F("[YIELD] Returning to previously saved context."));
+                _context.restore((volatile size_t*) _context._stk_top, (volatile size_t*) _context._current->_v_stackPointer, _context._stk_top - _stk_bottom);
+                TRACE(AX_F("[YIELD] Context restored."));
                 current->_data.lastRunTime = ax::getTick();
             }
         }
@@ -416,13 +430,13 @@ namespace ax {
         }
 
         int jmp_val = setjmp(_top_context);
-        //TRACE("[START] setjmp returned with value: " << jmp_val);
+        //TRACE(AX_F("[START] setjmp returned with value: ") << jmp_val);
 
         if (jmp_val > 1) 
         {
             goto error;
         } else {
-            //TRACE("[START] Starting thread context.");
+            //TRACE(AX_F("[START] Starting thread context."));
         }
 
         current = (thread_item*) getHeadItem();

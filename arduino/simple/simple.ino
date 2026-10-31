@@ -8,7 +8,7 @@ extern unsigned int __bss_end;
 extern unsigned int __heap_start;
 extern void *__brkval;
 
-size_t freeMemory() {
+ size_t freeMemory() {
   int free_memory;
   if ((int)__brkval == 0)
     free_memory = ((int)&free_memory) - ((int)&__bss_end);
@@ -23,7 +23,7 @@ constexpr int pin = 13; // Default LED pin on Arduino Nano
 
 #ifdef __AVR__
 // A thread's slice is about 30 bytes on AVR (-fstack-usage); 8 threads and their stacks must fit the Nano's 2 KB
-constexpr size_t k_stack_size = 64;
+constexpr size_t k_stack_size = 80;
 #else
 constexpr size_t k_stack_size = 500;
 #endif
@@ -40,6 +40,11 @@ void ax::sleepTicks(ax::time nSleep)
 
 ax::thread_context myThreadContext;
 
+size_t dumb()
+{
+    return 10;
+}
+
 class MyThreadItem : public ax::thread_item
 {
     public:
@@ -49,11 +54,20 @@ class MyThreadItem : public ax::thread_item
         {
             while (true)
             {
-                (void)_counter;
-
-                //Serial.print("Thread item at address: 0x"); Serial.print((uintptr_t)this, HEX); Serial.print(" with counter: "); Serial.print(_counter++); Serial.print(" Nice: "); Serial.println(getNice());
+                Serial.print(">> Thread item at address: 0x"); Serial.print((uintptr_t)this, HEX); 
+                Serial.print(F(" with counter: ")); Serial.println(_counter++); 
+                // //Serial.print(" Nice: "); Serial.println(getNice()); 
+                // Serial.print(F(" Free memory: ")); Serial.println(freeMemory());
                 yield();
             }
+        }
+
+        void StackOverflow() override
+        {
+            Serial.print(F("Thread item at address: 0x"));
+            Serial.print((uintptr_t)this, HEX);
+            Serial.print(F(" Thread item encountered a stack overflow! of: "));
+            Serial.println(String(getUsedStackSize()));
         }
     private:
         size_t _counter;
@@ -72,16 +86,30 @@ class MySecThreadItem : public ax::thread_item
                 dump();
             }
         }
+
+        void StackOverflow() override
+        {
+            Serial.print(F("Thread item at address: 0x"));
+            Serial.print((uintptr_t)this, HEX);
+            Serial.print(F("Thread item encountered a stack overflow! of: "));
+            Serial.println(String(getUsedStackSize()));
+        }
     private:
 
         void dump()
         {
-            Serial.print("Thread item at address: 0x");
+            Serial.print(F("** Thread item at address: 0x"));
             Serial.print((uintptr_t)this, HEX);
-            Serial.print(" with counter: ");
+            Serial.print(F(" with counter: "));
             Serial.print(_counter++);
-            Serial.print(" Nice: ");
-            Serial.println(getNice());
+            ///Serial.print(F(" Nice: "));
+            //Serial.println(getNice());
+            //Serial.print(F(" Free memory: "));
+            //Serial.println(freeMemory());
+            
+            size_t freeMem = freeMemory();
+            Serial.print(F(" Free memory: "));
+            Serial.println((size_t)freeMem);
             yield();
         }
 
@@ -96,30 +124,33 @@ void setup()
 
     pinMode(pin, OUTPUT);
 
-    MyThreadItem myThreadItem_1(myThreadContext, k_stack_size, 500, 100);
-    MyThreadItem myThreadItem_2(myThreadContext, k_stack_size, 1000, 200);
-    MyThreadItem myThreadItem_3(myThreadContext, k_stack_size, 2000, 300);
-    MyThreadItem myThreadItem_4(myThreadContext, k_stack_size, 5000, 400);
+    MyThreadItem myThreadItem_1(myThreadContext, k_stack_size, 500, 1000);
+    MyThreadItem myThreadItem_2(myThreadContext, k_stack_size, 1000, 2000);
+    MyThreadItem myThreadItem_3(myThreadContext, k_stack_size, 5000, 3000);
 
-    MySecThreadItem mySecThreadItem_1(myThreadContext, k_stack_size, 500, 100);
-    MySecThreadItem mySecThreadItem_2(myThreadContext, k_stack_size, 1000, 200);
-    MySecThreadItem mySecThreadItem_3(myThreadContext, k_stack_size, 2000, 300);
-    MySecThreadItem mySecThreadItem_4(myThreadContext, k_stack_size, 5000, 400);
+    MySecThreadItem mySecThreadItem_1(myThreadContext, k_stack_size, 500, 5000);
+    MySecThreadItem mySecThreadItem_2(myThreadContext, k_stack_size, 1000, 6000);
+    MySecThreadItem mySecThreadItem_3(myThreadContext, k_stack_size, 5000, 7000);
+
 
     for(ax::auto_obj_list::item* current = myThreadContext.getHeadItem(); current; current = current->getNextItem(current))
     {
-        Serial.print("Thread item at address: 0x");
+        Serial.print(F("Thread item at address: 0x"));
         Serial.println((uintptr_t)current, HEX);
     }
 
 #ifdef __AVR__
-    Serial.print("Free memory: ");
+    Serial.print(F("Free memory: "));
     Serial.println(freeMemory());
 #endif
 
+    Serial.println(F("------------------------------"));
+    Serial.println(F("Starting thread context..."));
+    Serial.println(F("------------------------------"));
+
     myThreadContext.start();
 
-    Serial.println("Main thread finished.");
+    Serial.println(F("Main thread finished."));
 }
 
 void loop()

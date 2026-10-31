@@ -32,6 +32,7 @@
 
 #include <setjmp.h>
 
+#include <stddef.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <stdint.h>
@@ -43,10 +44,6 @@
 #define ATOMICX_VERSION "2.0.0.proto"
 #define ATOMIC_VERSION_LABEL "AtomicX v" ATOMICX_VERSION " built at " __TIMESTAMP__
 
-// Helper macro to define the virtual memory
-// parameters automatically
-#define VMEM(vmemory) vmemory[0], sizeof(vmemory) / sizeof(size_t)
-
 namespace ax {
 
 #define ATIMICX_SYS_CHANEL 255
@@ -55,6 +52,11 @@ namespace ax {
 
     using time = uint32_t;
     using ref = size_t;
+
+#ifdef ARDUINO
+    // avr-libc has no ssize_t (POSIX); in ax, so it never clashes with one the core or a library defines
+    using ssize_t = ptrdiff_t;
+#endif
 
     // Those functions MUST be 
     // implemented by the user
@@ -163,11 +165,13 @@ namespace ax {
 
             static bool compare(const item& a, const item& b, const thread_item* data);
 
-            virtual void run() = 0; 
+            virtual void run() = 0;
+            virtual void StackOverflow() {}
 
             void dump_threads() volatile;
 
         protected:
+            ssize_t getUsedStackSize() const;
             void setNice(ax::time nice);
             ax::time getNice() const;
             void yield();
