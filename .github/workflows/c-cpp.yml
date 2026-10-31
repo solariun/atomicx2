@@ -24,14 +24,15 @@ jobs:
     - name: make build SYMBOLS=1
       run: make build SYMBOLS=1
     - name: Demo for 5 s (informational, no test target yet)
-      continue-on-error: true
       run: |
         make build
         perl -e 'alarm 5; exec @ARGV' ./bin/demo_atomix.bin > demo.txt 2>&1 || true
         head -20 demo.txt
-        echo "counter lines: $(grep -c 'with counter' demo.txt)"
-        if grep -q 'STACK OVERFLOW' demo.txt; then exit 1; fi
-        test "$(grep -c 'with counter' demo.txt)" -gt 8
+        lines=$(grep -c 'with counter' demo.txt || true)
+        echo "counter lines: $lines"
+        if grep -q 'STACK OVERFLOW' demo.txt || [ "$lines" -le 8 ]; then
+          echo "::warning title=Demo::$lines counter lines in 5 s (more than 8 expected) or a stack overflow; see spec.md P38"
+        fi
 
   nano:
     name: Arduino Nano build
