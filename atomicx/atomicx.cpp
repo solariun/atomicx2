@@ -41,12 +41,43 @@
 #include <unistd.h>
 
 #include <string.h>
-#include <ctype.h>
 #include <stdint.h>
 #include <setjmp.h>
 
 #include <stdlib.h>
 #include <new>
+
+#ifdef ARDUINO
+// Serial has no operator<<: each piece goes to Serial.print
+struct serial_stream
+{
+    serial_stream& operator<<(const char* text) { Serial.print(text); return *this; }
+    serial_stream& operator<<(char value) { Serial.print(value); return *this; }
+    serial_stream& operator<<(int value) { Serial.print(value); return *this; }
+    serial_stream& operator<<(unsigned int value) { Serial.print(value); return *this; }
+    serial_stream& operator<<(long value) { Serial.print(value); return *this; }
+    serial_stream& operator<<(unsigned long value) { Serial.print(value); return *this; }
+    serial_stream& operator<<(const volatile void* address) { Serial.print("0x"); Serial.print((unsigned long)(uintptr_t)address, HEX); return *this; }
+};
+#endif
+
+// LOG_ERROR(a << b); always prints one line: std::cerr on the PC, Serial on Arduino
+#ifdef ARDUINO
+#define LOG_ERROR(...) do { serial_stream() << __VA_ARGS__; Serial.println(); } while (0)
+#else
+#define LOG_ERROR(...) do { std::cerr << __VA_ARGS__ << std::endl; } while (0)
+#endif
+
+// TRACE(a << b); prints one line with TRACE_ON; without it, the preprocessor removes the call and its arguments
+#ifdef TRACE_ON
+#ifdef ARDUINO
+#define TRACE(...) do { serial_stream() << "[TRACE] " << __FILE__ << ":" << __LINE__ << " - " << __VA_ARGS__; Serial.println(); } while (0)
+#else
+#define TRACE(...) do { std::cout << "[TRACE] " << __FILE__ << ":" << __LINE__ << " - " << __VA_ARGS__ << std::endl; } while (0)
+#endif
+#else
+#define TRACE(...) do { } while (0)
+#endif
 
 namespace ax {
 
@@ -57,35 +88,51 @@ namespace ax {
         static const unsigned k_nibble_bits = 4;
         static const unsigned k_nibble_mask = 0x0F;
         static const char k_hex_digits[] = "0123456789abcdef";
+        static const size_t k_hex_chars = 3; // "xx "
+        static const size_t k_gap_chars = 2;
+        static const size_t k_line_chars = k_bytes_per_line * k_hex_chars + 2 * k_gap_chars + k_bytes_per_line + 1;
+        static const unsigned char k_first_printable = 0x20; // isprint() in the C locale, without a library call
+        static const unsigned char k_last_printable = 0x7e;
 
         const unsigned char* bytes = static_cast<const unsigned char*>(data);
 
-        if (label) std::cout << "[" << label << "]:" << std::endl; 
+        if (label) TRACE("[" << label << "]:");
 
         for (size_t line = 0; line < size; line += k_bytes_per_line)
         {
+            // One TRACE per line, so the prefix is not repeated on every byte
+            char text[k_line_chars];
+            size_t pos = 0;
+
             for (size_t i = 0; i < k_bytes_per_line; ++i)
             {
-                if (i == k_bytes_per_block) std::cout << "  ";
+                if (i == k_bytes_per_block) { memset(text + pos, ' ', k_gap_chars); pos += k_gap_chars; }
 
                 if (line + i < size)
                 {
                     unsigned char value = bytes[line + i];
-                    std::cout << k_hex_digits[value >> k_nibble_bits] << k_hex_digits[value & k_nibble_mask] << ' ';
+                    text[pos++] = k_hex_digits[value >> k_nibble_bits];
+                    text[pos++] = k_hex_digits[value & k_nibble_mask];
+                    text[pos++] = ' ';
                 }
                 else
-                    std::cout << "   ";
+                {
+                    memset(text + pos, ' ', k_hex_chars);
+                    pos += k_hex_chars;
+                }
             }
 
-            std::cout << "  ";
+            memset(text + pos, ' ', k_gap_chars);
+            pos += k_gap_chars;
 
             for (size_t i = 0; i < k_bytes_per_line && line + i < size; ++i)
             {
                 unsigned char value = bytes[line + i];
-                std::cout << (isprint(value) ? (char)value : '.');
+                text[pos++] = (value >= k_first_printable && value <= k_last_printable) ? (char)value : '.';
             }
 
-            std::cout << std::endl;
+            text[pos] = '\0';
+            TRACE(text);
         }
     }
 
@@ -95,13 +142,13 @@ namespace ax {
     auto_obj_list::item::item(auto_obj_list& parent) : parent(parent)
     { 
         parent.add(this); 
-        //std::cout << "Added item to parent list at address: " << this << std::endl;
+        //TRACE("Added item to parent list at address: " << this);
     }
 
     auto_obj_list::item::~item()
     { 
         parent.remove(this);
-        // std::cout << "Removed item from parent list at address: " << this << std::endl;
+        // TRACE("Removed item from parent list at address: " << this);
     }
 
     auto_obj_list::item* auto_obj_list::item::getNextItem(item* current) const { return current ? current->next : nullptr; }
@@ -186,10 +233,10 @@ namespace ax {
     {
 
         if (!this->_v_stackPointer) {
-            std::cerr << "Failed to allocate stack for thread item." << std::endl;
+            LOG_ERROR("Failed to allocate stack for thread item.");
             _stackSize = 0;
         } else {
-            // std::cout << ">>> Allocated stack for thread item at address: " << this->_v_stackPointer << " with size: " << stack_size << std::endl;
+            // TRACE(">>> Allocated stack for thread item at address: " << this->_v_stackPointer << " with size: " << stack_size);
         }
     }
 
@@ -255,24 +302,24 @@ namespace ax {
     {   
         const thread_item* current = static_cast<const thread_item*>(_context.getHeadItem());
         
-        // std::cout << "[DUMP] Yielding thread at address: " << (const void*)this << std::endl;
-        // std::cout << "[DUMP] Stack pointer set to: " << (const void*)_stk_bottom << std::endl;
-        // std::cout << "[DUMP] Virtual stack pointer: " <<(const void*)(_v_stackPointer) << std::endl;
-        // std::cout << "[DUMP] Current time: " << _data.tm_now << std::endl;
-        // std::cout << "[DUMP] Nice value: " << _data.nice << std::endl;
-        // std::cout << "[DUMP] Last run time: " << _data.lastRunTime << std::endl;
-        // std::cout << "[DUMP] State: " << static_cast<int>(_data.state) << std::endl;
-        // std::cout << "[DUMP] Parent context address: " << &_context << std::endl;
-        // std::cout << "[DUMP] Head item address: " << _context.getHeadItem() << std::endl;
-        // std::cout << "[DUMP] Tail item address: " << _context.getTailItem() << std::endl;
+        // TRACE("[DUMP] Yielding thread at address: " << (const void*)this);
+        // TRACE("[DUMP] Stack pointer set to: " << (const void*)_stk_bottom);
+        // TRACE("[DUMP] Virtual stack pointer: " <<(const void*)(_v_stackPointer));
+        // TRACE("[DUMP] Current time: " << _data.tm_now);
+        // TRACE("[DUMP] Nice value: " << _data.nice);
+        // TRACE("[DUMP] Last run time: " << _data.lastRunTime);
+        // TRACE("[DUMP] State: " << static_cast<int>(_data.state));
+        // TRACE("[DUMP] Parent context address: " << &_context);
+        // TRACE("[DUMP] Head item address: " << _context.getHeadItem());
+        // TRACE("[DUMP] Tail item address: " << _context.getTailItem());
 
-        std::cout << "[DUMP] Dumping all threads in the parent context:" << std::endl;
+        TRACE("[DUMP] Dumping all threads in the parent context:");
         while (current)
         {
-            std::cout << " * [DUMP] Thread at address: " << current << " State: " << static_cast<int>(current->_data.state) << " Nice: " << current->_data.nice << " Last run time: " << current->_data.lastRunTime << std::endl;
+            TRACE(" * [DUMP] Thread at address: " << current << " State: " << static_cast<int>(current->_data.state) << " Nice: " << current->_data.nice << " Last run time: " << current->_data.lastRunTime);
             current = static_cast<const thread_item*>(current->next);
         }
-        std::cout << "[DUMP] --------------------------------" << std::endl;
+        TRACE("[DUMP] --------------------------------");
     }
 
     void thread_item::setNice(ax::time nice)
@@ -311,41 +358,41 @@ namespace ax {
 
                 if (usedStackSize > _stackSize)
                 {
-                    std::cerr << "[YIELD] *** STACK OVERFLOW ***: Used stack size exceeds allocated stack size. max: " << _stackSize << " used: " << usedStackSize << ", diff:" << (usedStackSize - _stackSize) << std::endl;
+                    LOG_ERROR("[YIELD] *** STACK OVERFLOW ***: Used stack size exceeds allocated stack size. max: " << _stackSize << " used: " << usedStackSize << ", diff:" << (usedStackSize - _stackSize));
                     longjmp(_context._top_context, 3);
                 }
 
                 _context.save((volatile size_t*) _context._stk_top, (volatile size_t*) _v_stackPointer, usedStackSize);
-                std::cout << "[YIELD] Stack saved for thread at address: " << current << std::endl;
+                TRACE("[YIELD] Stack saved for thread at address: " << current);
 
                 if (current->_data.state == ax::State::READY)
                 {
-                    std::cout << "[YIELD] Next thread is ready to run." << std::endl << std::flush;
+                    TRACE("[YIELD] Next thread is ready to run.");
                     longjmp(_context._top_context, 1);
                     exit(EXIT_FAILURE);
                 } else if (current->_data.state == ax::State::RUNNING) {
                     // dump_data(current->_register_context, sizeof(current->_register_context), "Register Context");
                     fflush(stdout);
                     
-                    //sleep untinl thread is due
-                    ssize_t now = ((ssize_t)current->_data.lastRunTime + (ssize_t)current->_data.nice) - ax::getTick();                    
-                    if (now > 0)
+                    // Sleep until the thread is due; ticks wrap, so the distance is taken modulo the tick range (R3.16)
+                    ax::time remaining = (ax::time)(current->_data.lastRunTime + current->_data.nice - ax::getTick());
+                    if (remaining != 0 && remaining < k_tick_half_range)
                     {
-                        ax::sleepTicks(now);
+                        ax::sleepTicks(remaining);
                     }
                     
-                    std::cout << "[YIELD] Woke up from sleep, resuming thread." << std::endl << std::flush;
+                    TRACE("[YIELD] Woke up from sleep, resuming thread.");
                     longjmp(current->_register_context, 1);
                     exit(EXIT_FAILURE);
                 } else {  
-                    std::cout << "[YIELD]  **** Next thread is not ready to run. ****" << std::endl << std::flush;
+                    TRACE("[YIELD]  **** Next thread is not ready to run. ****");
                     longjmp(_context._top_context, 2);    
                     exit(EXIT_FAILURE);
                 }
             } else {
-                //std::cout << "[YIELD] Returning to previously saved context." << std::endl;
+                //TRACE("[YIELD] Returning to previously saved context.");
                 _context.restore((volatile size_t*) _context._stk_top, (volatile size_t*) _context._current->_v_stackPointer, _context._stk_top - _context._current->_stk_bottom);
-                std::cout << "[YIELD] Context restored." << std::endl;
+                TRACE("[YIELD] Context restored.");
                 current->_data.lastRunTime = ax::getTick();
             }
         }
@@ -369,13 +416,13 @@ namespace ax {
         }
 
         int jmp_val = setjmp(_top_context);
-        std::cout << "[START] setjmp returned with value: " << jmp_val << std::endl;
+        //TRACE("[START] setjmp returned with value: " << jmp_val);
 
         if (jmp_val > 1) 
         {
             goto error;
         } else {
-            std::cout << "[START] Starting thread context." << std::endl;
+            //TRACE("[START] Starting thread context.");
         }
 
         current = (thread_item*) getHeadItem();

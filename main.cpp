@@ -85,15 +85,15 @@ class MySecThreadItem : public ax::thread_item
 
 int main() 
 {
-    MyThreadItem myThreadItem_1(myThreadContext, 500, 500, 100);
-    MyThreadItem myThreadItem_2(myThreadContext, 500, 1000, 200);
-    MyThreadItem myThreadItem_3(myThreadContext, 500, 2000, 300);
-    MyThreadItem myThreadItem_4(myThreadContext, 500, 5000, 400);
+    MyThreadItem myThreadItem_1(myThreadContext, 500, 500, 1000);
+    MyThreadItem myThreadItem_2(myThreadContext, 500, 1000, 2000);
+    MyThreadItem myThreadItem_3(myThreadContext, 500, 2000, 3000);
+    MyThreadItem myThreadItem_4(myThreadContext, 500, 5000, 4000);
 
-    MySecThreadItem mySecThreadItem_1(myThreadContext, 500, 500, 100);
-    MySecThreadItem mySecThreadItem_2(myThreadContext, 500, 1000, 200);
-    MySecThreadItem mySecThreadItem_3(myThreadContext, 500, 2000, 300);
-    MySecThreadItem mySecThreadItem_4(myThreadContext, 500, 5000, 400);
+    MySecThreadItem mySecThreadItem_1(myThreadContext, 500, 500, 5000);
+    MySecThreadItem mySecThreadItem_2(myThreadContext, 500, 1000, 6000);
+    MySecThreadItem mySecThreadItem_3(myThreadContext, 500, 2000, 7000);
+    MySecThreadItem mySecThreadItem_4(myThreadContext, 500, 5000, 8000);
 
     for(ax::auto_obj_list::item* current = myThreadContext.getHeadItem(); current; current = current->getNextItem(current))
     {

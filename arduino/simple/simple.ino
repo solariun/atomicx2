@@ -21,6 +21,13 @@ size_t freeMemory() {
 
 constexpr int pin = 13; // Default LED pin on Arduino Nano
 
+#ifdef __AVR__
+// A thread's slice is about 30 bytes on AVR (-fstack-usage); 8 threads and their stacks must fit the Nano's 2 KB
+constexpr size_t k_stack_size = 64;
+#else
+constexpr size_t k_stack_size = 500;
+#endif
+
 ax::time ax::getTick(void)
 {
     return millis();
@@ -89,15 +96,15 @@ void setup()
 
     pinMode(pin, OUTPUT);
 
-    MyThreadItem myThreadItem_1(myThreadContext, 500, 500, 100);
-    MyThreadItem myThreadItem_2(myThreadContext, 500, 1000, 200);
-    MyThreadItem myThreadItem_3(myThreadContext, 500, 2000, 300);
-    MyThreadItem myThreadItem_4(myThreadContext, 500, 5000, 400);
+    MyThreadItem myThreadItem_1(myThreadContext, k_stack_size, 500, 100);
+    MyThreadItem myThreadItem_2(myThreadContext, k_stack_size, 1000, 200);
+    MyThreadItem myThreadItem_3(myThreadContext, k_stack_size, 2000, 300);
+    MyThreadItem myThreadItem_4(myThreadContext, k_stack_size, 5000, 400);
 
-    MySecThreadItem mySecThreadItem_1(myThreadContext, 500, 500, 100);
-    MySecThreadItem mySecThreadItem_2(myThreadContext, 500, 1000, 200);
-    MySecThreadItem mySecThreadItem_3(myThreadContext, 500, 2000, 300);
-    MySecThreadItem mySecThreadItem_4(myThreadContext, 500, 5000, 400);
+    MySecThreadItem mySecThreadItem_1(myThreadContext, k_stack_size, 500, 100);
+    MySecThreadItem mySecThreadItem_2(myThreadContext, k_stack_size, 1000, 200);
+    MySecThreadItem mySecThreadItem_3(myThreadContext, k_stack_size, 2000, 300);
+    MySecThreadItem mySecThreadItem_4(myThreadContext, k_stack_size, 5000, 400);
 
     for(ax::auto_obj_list::item* current = myThreadContext.getHeadItem(); current; current = current->getNextItem(current))
     {

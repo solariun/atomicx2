@@ -30,8 +30,6 @@
 #ifndef ATOMICX_H
 #define ATOMICX_H
 
-#include <iostream>
-
 #include <setjmp.h>
 
 #include <stdio.h>
