@@ -7,17 +7,44 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build:
+  pc:
+    name: PC build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest ]
+    runs-on: ${{ matrix.os }}
 
+    steps:
+    - uses: actions/checkout@v5
+    - name: make build
+      run: make build
+    - name: make build TRACE=1
+      run: make build TRACE=1
+    - name: make build SYMBOLS=1
+      run: make build SYMBOLS=1
+    - name: Demo for 5 s (informational, no test target yet)
+      continue-on-error: true
+      run: |
+        make build
+        perl -e 'alarm 5; exec @ARGV' ./bin/demo_atomix.bin > demo.txt 2>&1 || true
+        head -20 demo.txt
+        echo "counter lines: $(grep -c 'with counter' demo.txt)"
+        if grep -q 'STACK OVERFLOW' demo.txt; then exit 1; fi
+        test "$(grep -c 'with counter' demo.txt)" -gt 8
+
+  nano:
+    name: Arduino Nano build
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-    - name: configure
-      run: ./configure
-    - name: make
-      run: make
-    - name: make check
-      run: make check
-    - name: make distcheck
-      run: make distcheck
+    - uses: actions/checkout@v5
+    - uses: arduino/setup-arduino-cli@v2
+    - name: Install the AVR core
+      run: |
+        arduino-cli core update-index
+        arduino-cli core install arduino:avr
+    - name: Compile arduino/simple for the Nano
+      run: arduino-cli compile --fqbn arduino:avr:nano --warnings all arduino/simple
+    - name: Compile arduino/simple for the Nano with TRACE_ON
+      run: arduino-cli compile --fqbn arduino:avr:nano --warnings all --build-property "compiler.cpp.extra_flags=-DTRACE_ON" arduino/simple
