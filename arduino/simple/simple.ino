@@ -122,9 +122,12 @@ void setup()
     Serial.begin(115200);
     while (!Serial) {} // wait for the serial port on boards with native USB
 
+    DDRD  |= k_d2_bit;              // output (once, in setup)
+    DDRD  |= k_d3_bit;              // output (once, in setup)
+    
     pinMode(pin, OUTPUT);
-
-    MyThreadItem myThreadItem_1(myThreadContext, k_stack_size, 500, 1000);
+   
+    MyThreadItem myThreadItem_1(myThreadContext, k_stack_size, 0, 1000);
     MyThreadItem myThreadItem_2(myThreadContext, k_stack_size, 1000, 2000);
     MyThreadItem myThreadItem_3(myThreadContext, k_stack_size, 5000, 3000);
 

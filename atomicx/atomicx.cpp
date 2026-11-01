@@ -48,6 +48,28 @@
 #include <new>
 
 #ifdef ARDUINO
+
+#ifdef __AVR__
+constexpr uint8_t k_d2_bit = _BV(PD2);
+constexpr uint8_t k_d3_bit = _BV(PD3);
+
+constexpr uint8_t k_dac_mask = 0x3F;           // 6-bit R-2R ladder on A0..A5 = PC0..PC5; PC6 is RESET
+constexpr uint8_t k_dac_bits = 6;
+constexpr uint8_t k_analog_write_bits = 8;      // analogWrite()'s 0..255
+
+
+__inline void dac_init()
+{
+    DDRC |= k_dac_mask;
+}
+
+// Like analogWrite(): 0..255 -> value / 256 * Vcc at the ladder's output (128 -> 2.5 V, 255 -> 4.92 V)
+__inline void dac_write(uint8_t value)
+{
+    PORTC = (PORTC & (uint8_t)~k_dac_mask) | (value >> (k_analog_write_bits - k_dac_bits));
+}
+#endif
+
 // AX_F("text") keeps a literal in flash on Arduino (F()); elsewhere it is the literal itself
 #define AX_F(text) F(text)
 
@@ -347,15 +369,28 @@ namespace ax {
 
     void thread_item::yield()
     {
+#ifdef __AVR__
+        PORTD |= k_d2_bit;              // on
+#endif
+
+#ifdef __AVR__
+        PORTD |= k_d3_bit;              // on
+#endif
+
         _data.tm_now = getTick();
 
         //dump_threads();
+
 
         // Implementation of yield can be added here
         _context.sort(compare, this);
         
         auto next = static_cast<thread_item*>(_context.getHeadItem());
-        
+
+#ifdef __AVR__
+        PORTD &= (uint8_t)~k_d3_bit;    // off D3
+#endif
+
         if (next != nullptr)
         {
             auto* current = _context._current = next;
@@ -366,7 +401,6 @@ namespace ax {
                 // dump_data(current->_register_context, sizeof(current->_register_context), "Set Jump Context");
         
                 _stk_bottom =  &dummy;
-
 
                 size_t usedStackSize = _context._stk_top - _stk_bottom;
 
@@ -411,11 +445,20 @@ namespace ax {
             }
         }
 
+    
+#ifdef __AVR__
+        PORTD &= (uint8_t)~k_d2_bit;    // off D2
+#endif
         return;
     }
 
     bool thread_context::start()
     {
+#ifdef __AVR__
+        DDRD  |= k_d2_bit;              // output (once, in setup)
+        DDRD  |= k_d3_bit;              // output (once, in setup)
+#endif
+
         if (isEmpty() || running) return false;
         
         running = true;
