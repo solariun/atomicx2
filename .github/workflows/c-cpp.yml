@@ -47,5 +47,3 @@ jobs:
         arduino-cli core install arduino:avr
     - name: Compile arduino/simple for the Nano
       run: arduino-cli compile --fqbn arduino:avr:nano --warnings all arduino/simple
-    - name: Compile arduino/simple for the Nano with TRACE_ON
-      run: arduino-cli compile --fqbn arduino:avr:nano --warnings all --build-property "compiler.cpp.extra_flags=-DTRACE_ON" arduino/simple

@@ -31,12 +31,9 @@ CFLAGS = -O0 -Wall --std=c++11 -Wall -Wextra -Werror
 # SYMBOLS=1 adds debug symbols (-g); make debug always sets it
 CFLAGS += $(if $(filter 1,$(SYMBOLS)),-g)
 
-# TRACE=1 turns TRACE() on (-DTRACE_ON) for the native build and the Arduino targets; off by default
+# TRACE=1 turns TRACE() on (-DTRACE_ON) for the native build; off by default. Arduino has no trace: atomicx.cpp ignores TRACE_ON there
 TRACE_FLAGS = $(if $(filter 1,$(TRACE)),-DTRACE_ON)
 CFLAGS += $(TRACE_FLAGS)
-
-# arduino-cli does not read CFLAGS: the flag goes through compiler.cpp.extra_flags, empty on the AVR and ESP32 cores
-ARDUINO_FLAGS = $(if $(TRACE_FLAGS),--build-property "compiler.cpp.extra_flags=$(TRACE_FLAGS)")
 
 # define the directory for atomicx
 ifndef CPX_DIR
@@ -71,7 +68,7 @@ help:
 	@echo "Makefile Usage:"
 	@echo "  make build                - Build the executable file 'bin/demo_atomix.bin'"
 	@echo "  make build SYMBOLS=1      - The same, with debug symbols (-g)"
-	@echo "  make build TRACE=1        - The same, with TRACE() output; TRACE=1 also works with run, debug, nano, nano_flash and nodemcu"
+	@echo "  make build TRACE=1        - The same, with TRACE() output; TRACE=1 also works with run and debug"
 	@echo "  make clean                - Remove all .o and executable files"
 	@echo "  make debug                - Build and debug the executable file 'bin/demo_atomix.bin' using lldb"
 	@echo "  make run                  - Build and run the executable file 'bin/demo_atomix.bin'"
@@ -113,10 +110,10 @@ install_arduino_cli:
 
 # Target to compile and upload code to Arduino Nano
 nano_flash:
-	arduino-cli compile --upload $(ARDUINO_FLAGS) --fqbn arduino:avr:nano --programmer usbasp arduino/simple
+	arduino-cli compile --upload --fqbn arduino:avr:nano --programmer usbasp arduino/simple
 
 nano:
-	arduino-cli compile --upload $(ARDUINO_FLAGS) --fqbn arduino:avr:nano --port "$(SOURCE)" arduino/simple
+	arduino-cli compile --upload --fqbn arduino:avr:nano --port "$(SOURCE)" arduino/simple
 	
 
 bootloader_nano:
@@ -124,7 +121,7 @@ bootloader_nano:
 
 # Target to compile and upload code to NodeMCU ESP8266
 nodemcu:
-	arduino-cli compile --upload $(ARDUINO_FLAGS) --fqbn esp8266:esp8266:nodemcu arduino/simple
+	arduino-cli compile --upload --fqbn esp8266:esp8266:nodemcu arduino/simple
 
 # Rule to compile .cpp files into .o files
 .cpp.o:

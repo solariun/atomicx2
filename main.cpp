@@ -37,12 +37,14 @@ void ax::sleepTicks(ax::time  nSleep)
 #endif
 }
 
-ax::thread_context myThreadContext;
-
 class MyThreadItem : public ax::thread_item
 {
     public:
-        MyThreadItem(ax::thread_context& parent, size_t stackSize, ax::time nice, size_t counter) : thread_item(parent, stackSize), _counter(counter) { setNice(nice); }
+        MyThreadItem(size_t stackSize, ax::time nice, size_t counter) : thread_item(stackSize), _counter(counter) 
+        { 
+            setNice(nice);
+            setName("MyThreadItem");
+        }
 
         void run() override
         {
@@ -50,7 +52,7 @@ class MyThreadItem : public ax::thread_item
             {
                 (void)_counter;
                 
-                //std::cout << "Thread item at address: " << this << " with counter: " << _counter++ << " Nice: " << getNice() << std::endl;
+                std::cout << "Thread item at address: " << this << " with counter: " << _counter++ << " Nice: " << getNice() << std::endl;
                 yield();
             }
         }
@@ -61,7 +63,11 @@ class MyThreadItem : public ax::thread_item
 class MySecThreadItem : public ax::thread_item
 {
     public:
-        MySecThreadItem(ax::thread_context& parent, size_t stackSize, ax::time nice, size_t counter) : thread_item(parent, stackSize), _counter(counter) { setNice(nice); }
+        MySecThreadItem(size_t stackSize, ax::time nice, size_t counter) : thread_item(stackSize), _counter(counter) 
+        { 
+            setNice(nice); 
+            setName("MySecThreadItem");
+        }
 
 
         void run() override
@@ -75,32 +81,97 @@ class MySecThreadItem : public ax::thread_item
 
         void dump()
         {
-            std::cout << "Thread item at address: " << this << " with counter: " << _counter++ << " Nice: " << getNice() << std::endl;
+            std::cout << "Thread item at address: " << this << " with counter: " << _counter++ << " Nice: " << getNice() << std::endl << std::flush;
             yield();
         }
 
         size_t _counter;
 };
 
+ax::ref someReference;
+
+class producer : public ax::thread_item
+{
+    public:
+        producer(size_t stackSize, ax::time nice, size_t counter) : thread_item(stackSize), _counter(counter) 
+        { 
+            setNice(nice); 
+            setName("ProducerThread");
+        }
+
+    private:  
+
+        void run() override
+        {
+            while (true)
+            {
+                std::cout << "Producer " << getName() << " is about to notify with counter: " << _counter << std::endl << std::flush;
+                notify(someReference, {1, _counter++});
+                std::cout << "Producer " << getName() << " notified with counter: " << _counter << std::endl << std::flush;
+                yield();
+            }
+        }
+    private:
+        size_t _counter;
+};
+
+class consumer : public ax::thread_item
+{
+    public:
+        consumer(size_t stackSize, ax::time nice, size_t counter) : thread_item(stackSize), _counter(counter) 
+        { 
+            setNice(nice);
+            setName("ConsumerThread");
+        }
+
+        void run() override
+        {
+            while (true)
+            {
+                std::cout << "[CONSUMER] " << getName() << " is about to wait with counter: " << _counter << std::endl << std::flush;
+                auto res = wait(someReference, _someMessage, 1); // Example usage
+
+                std::cout << "[CONSUMER] thread at address: " << this \
+                << " with counter: " << _counter++ \
+                << ", ret: " << res() \
+                << ", message: " << _someMessage.attribute << "/" << _someMessage.value \
+                << std::endl;
+
+                _counter++;
+
+                yield();
+            }
+        }
+    private:
+        size_t _counter;
+        ax::message _someMessage;
+};
 
 int main() 
 {
-    MyThreadItem myThreadItem_1(myThreadContext, 500, 500, 1000);
-    MyThreadItem myThreadItem_2(myThreadContext, 500, 1000, 2000);
-    MyThreadItem myThreadItem_3(myThreadContext, 500, 2000, 3000);
-    MyThreadItem myThreadItem_4(myThreadContext, 500, 5000, 4000);
+    MyThreadItem myThreadItem_1(500, 500, 1000);
+    // MyThreadItem myThreadItem_2(500, 1000, 2000);
+    // MyThreadItem myThreadItem_3(500, 2000, 3000);
+    // MyThreadItem myThreadItem_4(500, 5000, 4000);
 
-    MySecThreadItem mySecThreadItem_1(myThreadContext, 500, 500, 5000);
-    MySecThreadItem mySecThreadItem_2(myThreadContext, 500, 1000, 6000);
-    MySecThreadItem mySecThreadItem_3(myThreadContext, 500, 2000, 7000);
-    MySecThreadItem mySecThreadItem_4(myThreadContext, 500, 5000, 8000);
+    MySecThreadItem mySecThreadItem_1(500, 200, 5000);
+    // MySecThreadItem mySecThreadItem_2(500, 1000, 6000);
+    // MySecThreadItem mySecThreadItem_3(500, 2000, 7000);
+    // MySecThreadItem mySecThreadItem_4(500, 5000, 8000);
 
-    for(ax::auto_obj_list::item* current = myThreadContext.getHeadItem(); current; current = current->getNextItem(current))
+    // consumer myConsumer(1000, 100, 0);
+
+    // producer myProducer(1000, 100, 0);
+    // producer myProducer2(500, 100, 1000);
+    // producer myProducer3(500, 100, 2000);
+    // producer myProducer4(500, 100, 3000);
+
+    for(ax::auto_obj_list::item* current = ax::context.getHeadItem(); current; current = current->getNextItem(current))
     {
         std::cout << "Thread item at address: " << current << std::endl;
     }
 
-    myThreadContext.start();
+    ax::context.start();
     
     std::cout << "Main thread finished." << std::endl;
     

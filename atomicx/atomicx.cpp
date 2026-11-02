@@ -57,6 +57,8 @@ constexpr uint8_t k_dac_mask = 0x3F;           // 6-bit R-2R ladder on A0..A5 = 
 constexpr uint8_t k_dac_bits = 6;
 constexpr uint8_t k_analog_write_bits = 8;      // analogWrite()'s 0..255
 
+#define  PIN_ON(pin) PORTD |= k_d##pin##_bit
+#define  PIN_OFF(pin) PORTD &= (uint8_t)~k_d##pin##_bit
 
 __inline void dac_init()
 {
@@ -69,50 +71,34 @@ __inline void dac_write(uint8_t value)
     PORTC = (PORTC & (uint8_t)~k_dac_mask) | (value >> (k_analog_write_bits - k_dac_bits));
 }
 #endif
-
-// AX_F("text") keeps a literal in flash on Arduino (F()); elsewhere it is the literal itself
-#define AX_F(text) F(text)
-
-// Serial has no operator<<: each piece goes to Serial.print
-struct serial_stream
-{
-    serial_stream& operator<<(const __FlashStringHelper* text) { Serial.print(text); return *this; }
-    serial_stream& operator<<(const char* text) { Serial.print(text); return *this; }
-    serial_stream& operator<<(char value) { Serial.print(value); return *this; }
-    serial_stream& operator<<(int value) { Serial.print(value); return *this; }
-    serial_stream& operator<<(unsigned int value) { Serial.print(value); return *this; }
-    serial_stream& operator<<(long value) { Serial.print(value); return *this; }
-    serial_stream& operator<<(unsigned long value) { Serial.print(value); return *this; }
-    serial_stream& operator<<(const volatile void* address) { Serial.print(F("0x")); Serial.print((unsigned long)(uintptr_t)address, HEX); return *this; }
-};
-#else
-#define AX_F(text) text
 #endif
 
-// LOG_ERROR(AX_F("text ") << value); always prints one line: std::cerr on the PC, Serial on Arduino
+// LOG_ERROR("text " << value); prints one line to std::cerr on the PC; on Arduino, the preprocessor removes the call and its arguments
 #ifdef ARDUINO
-#define LOG_ERROR(...) do { serial_stream() << __VA_ARGS__; Serial.println(); } while (0)
+#define LOG_ERROR(...) do { } while (0)
 #else
 #define LOG_ERROR(...) do { std::cerr << __VA_ARGS__ << std::endl; } while (0)
 #endif
 
-// TRACE(AX_F("text ") << value); prints one line with TRACE_ON; without it, the preprocessor removes the call and its arguments
-#ifdef TRACE_ON
+// No trace on Arduino: TRACE_ON is ignored, so every TRACE line, dump_data() and dump_threads() compile to nothing
 #ifdef ARDUINO
-// One copy of the file name in flash, not one per call
-static const char k_trace_file[] PROGMEM = __FILE__;
-#define TRACE(...) do { serial_stream() << F("[TRACE] ") << (const __FlashStringHelper*)k_trace_file << ':' << __LINE__ << F(" - ") << __VA_ARGS__; Serial.println(); } while (0)
-#else
-#define TRACE(...) do { std::cout << "[TRACE] " << __FILE__ << ":" << __LINE__ << " - " << __VA_ARGS__ << std::endl; } while (0)
+#undef TRACE_ON
 #endif
+
+// TRACE("text " << value); prints one line with TRACE_ON; without it, the preprocessor removes the call and its arguments
+#ifdef TRACE_ON
+#define TRACE(...) do { std::cout << "[TRACE] " << __FILE__ << ":" << __LINE__ << " - " << __VA_ARGS__ << std::endl << std::flush; } while (0)
 #else
 #define TRACE(...) do { } while (0)
 #endif
 
 namespace ax {
 
+    thread_context context; // Definition of the global thread context object
+
     void dump_data(const void* data, size_t size, const char* label = nullptr)
     {
+#ifdef TRACE_ON
         static const size_t k_bytes_per_line = 16;
         static const size_t k_bytes_per_block = 8;
         static const unsigned k_nibble_bits = 4;
@@ -126,7 +112,7 @@ namespace ax {
 
         const unsigned char* bytes = static_cast<const unsigned char*>(data);
 
-        if (label) TRACE(AX_F("[") << label << AX_F("]:"));
+        if (label) TRACE("[" << label << "]:");
 
         for (size_t line = 0; line < size; line += k_bytes_per_line)
         {
@@ -164,21 +150,27 @@ namespace ax {
             text[pos] = '\0';
             TRACE(text);
         }
+#endif
+        (void)data; (void)size; (void)label;
     }
 
+    // ===============================================
+    //  AUTO_OBJ_LIST ITEM IMPLEMENTATION
+    // ===============================================
+
     // Ticks wrap around: a time is due while now is less than half the tick range past it
-    static const time k_tick_half_range = (time)(((time)~(time)0 >> 1) + 1);
+    // static const time k_tick_half_range = (time)(((time)~(time)0 >> 1) + 1);
 
     auto_obj_list::item::item(auto_obj_list& parent) : parent(parent)
     { 
         parent.add(this); 
-        //TRACE(AX_F("Added item to parent list at address: ") << this);
+        //TRACE("Added item to parent list at address: " << this);
     }
 
     auto_obj_list::item::~item()
     { 
         parent.remove(this);
-        // TRACE(AX_F("Removed item from parent list at address: ") << this);
+        // TRACE("Removed item from parent list at address: " << this);
     }
 
     auto_obj_list::item* auto_obj_list::item::getNextItem(item* current) const { return current ? current->next : nullptr; }
@@ -259,14 +251,18 @@ namespace ax {
         return true;
     }
 
-    thread_item::thread_item(thread_context& parent, size_t stack_size) : item(parent), _v_stackPointer(new (std::nothrow) volatile char[stack_size]), _stackSize(stack_size * sizeof(size_t)), _context(parent) 
+    // ===============================================
+    //  THREAD ITEM IMPLEMENTATION
+    // ===============================================
+
+    thread_item::thread_item(size_t stack_size) : item(ax::context), _v_stackPointer(new (std::nothrow) volatile char[stack_size]), _stackSize(stack_size) 
     {
 
         if (!this->_v_stackPointer) {
-            LOG_ERROR(AX_F("Failed to allocate stack for thread item."));
+            LOG_ERROR("Failed to allocate stack for thread item.");
             _stackSize = 0;
         } else {
-            // TRACE(AX_F(">>> Allocated stack for thread item at address: ") << this->_v_stackPointer << AX_F(" with size: ") << stack_size);
+            // TRACE(">>> Allocated stack for thread item at address: " << this->_v_stackPointer << " with size: " << stack_size);
         }
     }
 
@@ -277,34 +273,42 @@ namespace ax {
     }
 
     // The schedule order's first key: a lower rank runs first
-    enum class Rank { READY, RUNNING, WAITING, TERMINATED };
+    enum class Rank { READY, RUNNING, SLEEP, TERMINATED };
 
-    static Rank rank(State state)
+    const char* toStr(State state)
     {
-        Rank order = Rank::TERMINATED;
+        // A case per State with no default, as in rank(): a new State does not compile until it is named
+        switch (state)
+        {
+            case State::READY:      return ("READY");
+            case State::NOW:        return ("NOW");
+            case State::RUNNING:    return ("RUNNING");
+            case State::SLEEPING:   return ("SLEEPING");
+            case State::WAITING:    return ("WAITING");
+            case State::NOTIFY:     return ("NOTIFY");
+            case State::TERMINATED: break;
+        }
 
+        // TERMINATED returns here, so GCC sees a return on every path
+        return ("TERMINATED");
+    }
+
+    static inline Rank rank(State state)
+    {
+        // A case per State with no default, as in toStr(): a new State does not compile until it is ranked
         switch (state)
         {
             case State::NOW:
-            case State::READY:
-                order = Rank::READY;
-                break;
-
-            case State::RUNNING:
-                order = Rank::RUNNING;
-                break;
-
-            case State::SLEEPING:
+            case State::READY:      return Rank::READY;
+            case State::NOTIFY:
             case State::WAITING:
-                order = Rank::WAITING;
-                break;
-
-            case State::TERMINATED:
-                order = Rank::TERMINATED;
-                break;
+            case State::RUNNING:    return Rank::RUNNING;
+            case State::SLEEPING:   return Rank::SLEEP;
+            case State::TERMINATED: break;
         }
 
-        return order;
+        // TERMINATED returns here, so GCC sees a return on every path
+        return Rank::TERMINATED;
     }
 
     bool thread_item::compare(const item& a, const item& b, const thread_item* data)
@@ -312,44 +316,35 @@ namespace ax {
         const thread_item& first = static_cast<const thread_item&>(a);
         const thread_item& second = static_cast<const thread_item&>(b);
 
-        Rank first_rank = rank(first._data.state);
-        Rank second_rank = rank(second._data.state);
+        if (first._data.timeout.isForever()) return true;
+
+        const Rank first_rank = rank(first._data.state);
+        const Rank second_rank = rank(second._data.state);
+
+        (void) data;
 
         if (first_rank != second_rank) return first_rank < second_rank;
 
-        time now = data->_data.tm_now;
-
-        // Earliest deadline first. Offsetting each deadline by now - half range maps
-        // "half range overdue .. half range ahead" onto 0 .. max, so the keys order
-        // correctly across the tick wrap (and the most overdue thread comes first)
-        time first_key = (time)(first._data.lastRunTime + first._data.nice - now + k_tick_half_range);
-        time second_key = (time)(second._data.lastRunTime + second._data.nice - now + k_tick_half_range);
-
-        return first_key < second_key;
+        return (time) first._data.timeout < (time) second._data.timeout;
     }
 
     void thread_item::dump_threads() volatile
-    {   
-        const thread_item* current = static_cast<const thread_item*>(_context.getHeadItem());
+    {
+#ifdef TRACE_ON
+        const thread_item* current = static_cast<const thread_item*>(ax::context.getHeadItem());
         
-        // TRACE(AX_F("[DUMP] Yielding thread at address: ") << (const void*)this);
-        // TRACE(AX_F("[DUMP] Stack pointer set to: ") << (const void*)_stk_bottom);
-        // TRACE(AX_F("[DUMP] Virtual stack pointer: ") <<(const void*)(_v_stackPointer));
-        // TRACE(AX_F("[DUMP] Current time: ") << _data.tm_now);
-        // TRACE(AX_F("[DUMP] Nice value: ") << _data.nice);
-        // TRACE(AX_F("[DUMP] Last run time: ") << _data.lastRunTime);
-        // TRACE(AX_F("[DUMP] State: ") << static_cast<int>(_data.state));
-        // TRACE(AX_F("[DUMP] Parent context address: ") << &_context);
-        // TRACE(AX_F("[DUMP] Head item address: ") << _context.getHeadItem());
-        // TRACE(AX_F("[DUMP] Tail item address: ") << _context.getTailItem());
-
-        TRACE(AX_F("[DUMP] Dumping all threads in the parent context:"));
+        TRACE("[DUMP] Dumping all threads in the parent context: ------------------------");
         while (current)
         {
-            TRACE(AX_F(" * [DUMP] Thread at address: ") << current << AX_F(" State: ") << static_cast<int>(current->_data.state) << AX_F(" Nice: ") << current->_data.nice << AX_F(" Last run time: ") << current->_data.lastRunTime);
+            TRACE(" * [DUMP] Thread " << current->getName() << " at address: " << \
+            current << " State: [" << static_cast<int>(current->_data.state) << ":" << toStr(current->_data.state) << "]" \
+            << " Nice: " << current->_data.nice << \
+            " remaining time: " << (long long int)current->_data.timeout.getRemainingTime());
+            
             current = static_cast<const thread_item*>(current->next);
         }
-        TRACE(AX_F("[DUMP] --------------------------------"));
+        TRACE("[DUMP] --------------------------------");
+#endif
     }
 
     void thread_item::setNice(ax::time nice)
@@ -364,99 +359,121 @@ namespace ax {
     
     ssize_t thread_item::getUsedStackSize() const
     {
-        return _context._stk_top - _context._current->_stk_bottom;
+        return ax::context._stk_top - ax::context._current->_stk_bottom;
     }
 
-    void thread_item::yield()
+    timeout thread_item::yield(timeout duration)
     {
 #ifdef __AVR__
-        PORTD |= k_d2_bit;              // on
+        PIN_ON(2);              // on yield timing
+        PIN_ON(3);              // on sort timing
 #endif
-
-#ifdef __AVR__
-        PORTD |= k_d3_bit;              // on
-#endif
-
-        _data.tm_now = getTick();
-
-        //dump_threads();
-
+        _data.timeout = duration.forever() || duration > 0 ? duration : _data.nice;
 
         // Implementation of yield can be added here
-        _context.sort(compare, this);
-        
-        auto next = static_cast<thread_item*>(_context.getHeadItem());
+        ax::context.sort(compare, this);
+        dump_threads();
 
 #ifdef __AVR__
-        PORTD &= (uint8_t)~k_d3_bit;    // off D3
+        PIN_OFF(3);    // off D3
 #endif
-
-        if (next != nullptr)
+        if (ax::context.getHeadItem() != nullptr)
         {
-            auto* current = _context._current = next;
-            volatile char dummy = 0xAA;
+            ax::context._current = static_cast<thread_item*>(ax::context.getHeadItem());
             
-            if (setjmp(current->_register_context) == 0)
+            if (setjmp(this->_register_context) == 0)
             {
                 // dump_data(current->_register_context, sizeof(current->_register_context), "Set Jump Context");
-        
-                _stk_bottom =  &dummy;
+                
+                volatile char marker = 0xAA;
+                this->_stk_bottom = (volatile char*) &marker;
 
-                size_t usedStackSize = _context._stk_top - _stk_bottom;
-
-                if (usedStackSize > _stackSize)
+                if (ax::context._stk_top == nullptr)
                 {
-                    LOG_ERROR(AX_F("[YIELD] *** STACK OVERFLOW ***: Used stack size exceeds allocated stack size. max: ") << _stackSize << AX_F(" used: ") << usedStackSize << AX_F(", diff:") << (usedStackSize - _stackSize));
-                    StackOverflow();
-                    longjmp(_context._top_context, 3);
+                    LOG_ERROR("[YIELD] *** STACK ERROR ***: Stack top is not set.");
+                    exit(EXIT_FAILURE);
                 }
 
-                _context.save((volatile size_t*) _context._stk_top, (volatile size_t*) _v_stackPointer, usedStackSize);
-                TRACE(AX_F("[YIELD] Stack saved for thread at address: ") << current);
-
-                if (current->_data.state == ax::State::READY)
+                this->usedStackSize = ax::context._stk_top - this->_stk_bottom;
+                
+                if (this->usedStackSize > this->_stackSize)
                 {
-                    TRACE(AX_F("[YIELD] Next thread is ready to run."));
-                    longjmp(_context._top_context, 1);
+                    LOG_ERROR("[YIELD] *** STACK OVERFLOW ***: Used stack size exceeds allocated stack size. max: " << this->_stackSize << " used: " << this->usedStackSize << ", diff:" << (this->usedStackSize - this->_stackSize));
+                    StackOverflow();
+                    longjmp(ax::context._top_context, 3);
+                }
+
+                ax::context.save((volatile size_t*) ax::context._stk_top,
+                              (volatile size_t*) this->_v_stackPointer,
+                              this->usedStackSize);
+                
+                TRACE("[YIELD] Stack saved for thread at address: " << this);
+
+                TRACE("[YIELD] Preparing next thread for execution: " << ax::context._current << " name: " << ax::context._current->getName() << " state: " << toStr(ax::context._current->_data.state));
+                
+                if (ax::context._current->_data.state == ax::State::READY)
+                {
+                    TRACE("[YIELD] Next thread is ready to run.");
+                    longjmp(ax::context._top_context, 1);
                     exit(EXIT_FAILURE);
-                } else if (current->_data.state == ax::State::RUNNING) {
-                    // dump_data(current->_register_context, sizeof(current->_register_context), "Register Context");
-                    
-                    // Sleep until the thread is due; ticks wrap, so the distance is taken modulo the tick range (R3.16)
-                    ax::time remaining = (ax::time)(current->_data.lastRunTime + current->_data.nice - ax::getTick());
-                    if (remaining != 0 && remaining < k_tick_half_range)
+
+                } else if ((ax::context._current->_data.state == ax::State::RUNNING 
+                           || ax::context._current->_data.state == ax::State::NOW 
+                           || ax::context._current->_data.state == ax::State::WAITING)
+                           && ax::context._current->_data.timeout.isForever() == false) {
                     {
-                        ax::sleepTicks(remaining);
+                        // Sleep until the thread is due; ticks wrap, so the distance is taken modulo the tick range (R3.16)
+                        ssize_t remaining = ax::context._current->_data.timeout.getRemainingTime();
+                        TRACE("[YIELD] ****---> Thread remaining time: " << (size_t) remaining);
+                        if (remaining > 0)
+                        {
+                            ax::sleepTicks(remaining);
+                        }
                     }
                     
-                    TRACE(AX_F("[YIELD] Woke up from sleep, resuming thread."));
-                    longjmp(current->_register_context, 1);
-                    exit(EXIT_FAILURE);
+                    TRACE("[YIELD] Woke up from sleep, resuming next thread. Status: " << toStr(ax::context._current->_data.state));
+                    longjmp(ax::context._current->_register_context, 1);
+
                 } else {  
-                    TRACE(AX_F("[YIELD]  **** Next thread is not ready to run. ****"));
-                    longjmp(_context._top_context, 2);    
+                    TRACE("[YIELD]  **** Next thread is not ready to run. ****");
+                    longjmp(ax::context._top_context, 2);    
                     exit(EXIT_FAILURE);
                 }
             } else {
-                //TRACE(AX_F("[YIELD] Returning to previously saved context."));
-                _context.restore((volatile size_t*) _context._stk_top, (volatile size_t*) _context._current->_v_stackPointer, _context._stk_top - _stk_bottom);
-                TRACE(AX_F("[YIELD] Context restored."));
-                current->_data.lastRunTime = ax::getTick();
+                ax::context.restore((volatile size_t*) ax::context._stk_top, 
+                                    (volatile size_t*) ax::context._current->_v_stackPointer, 
+                                    ax::context._current->usedStackSize);
             }
+        } else {
+            TRACE("[YIELD] Thread is not in a state to yield.");
+            longjmp(ax::context._top_context, 2);    
+            exit(EXIT_FAILURE);
         }
-
     
 #ifdef __AVR__
-        PORTD &= (uint8_t)~k_d2_bit;    // off D2
+        PIN_OFF(2);    // off D2
 #endif
-        return;
+        // resume() put this thread's slice back before jumping here: the frame is ours again
+        ax::context._current->_data.lastRunTime = ax::getTick();
+        
+        return ax::context._current->_data.timeout;
     }
+
+    const char* thread_item::getName() const { return _data.name; }
+    void thread_item::setName(const char* name) { _data.name = name; }
+
+    // ===============================================
+    //  THREAD CONTEXT IMPLEMENTATION
+    // ===============================================
 
     bool thread_context::start()
     {
 #ifdef __AVR__
         DDRD  |= k_d2_bit;              // output (once, in setup)
         DDRD  |= k_d3_bit;              // output (once, in setup)
+
+        PIN_OFF(2);    // off D2
+        PIN_OFF(3);    // off D3
 #endif
 
         if (isEmpty() || running) return false;
@@ -467,19 +484,17 @@ namespace ax {
 
         sort(thread_item::compare, current);
         
-        {
-            volatile char dummy = 0xBB;
-            _stk_top = &dummy;
-        }
+        volatile char dummy = 0xBB;
+        _stk_top = &dummy;
 
         int jmp_val = setjmp(_top_context);
-        //TRACE(AX_F("[START] setjmp returned with value: ") << jmp_val);
+        //TRACE("[START] setjmp returned with value: " << jmp_val);
 
         if (jmp_val > 1) 
         {
             goto error;
         } else {
-            //TRACE(AX_F("[START] Starting thread context."));
+            //TRACE("[START] Starting thread context.");
         }
 
         current = (thread_item*) getHeadItem();
@@ -491,6 +506,21 @@ namespace ax {
     error:
 
         return false;
+    }
+
+    // Puts next's slice back and jumps into it. Called from a frame inside that slice, it first calls itself
+    // until its own frame is below the slice, so the copy never overwrites a frame still in use. Each call
+    // passes its marker down, so the compiler cannot turn the recursion into a loop
+    void thread_context::resume(thread_item& next, volatile char* caller_marker)
+    {
+        volatile char marker = 0;
+
+        // This frame lies below the caller's sp, itself below the caller's marker: once that marker is below the
+        // slice, this whole frame is too. From yield() (no marker) it always goes one call deeper
+        if (!caller_marker || (uintptr_t)caller_marker >= (uintptr_t)next._stk_bottom) resume(next, &marker);
+
+        restore((volatile size_t*) _stk_top, (volatile size_t*) next._v_stackPointer, _stk_top - next._stk_bottom);
+        longjmp(next._register_context, 1);
     }
 
     void thread_context::save (volatile size_t* stackTop, volatile size_t* stackPointer, size_t stackSize) volatile
@@ -505,5 +535,168 @@ namespace ax {
         // The stack grows down: the slice is the stackSize bytes below stackTop
         memcpy((void*)((volatile char*)stackTop - stackSize), (void*)stackPointer, stackSize);
         return;
+    }
+
+    timeout thread_item::wait(ref& reference, message& msg, timeout duration)
+    {
+        // Implementation goes here
+        // Mark the current thread as waiting
+        _data.state = ax::State::WAITING;
+        _data.timeout = duration;
+        _data.waitingOn = &reference;
+
+        ax::context.iterate<thread_item&>([&reference](thread_item& item)->bool
+        {
+            if (item._data.state == ax::State::NOTIFY && item._data.waitingOn == &reference)
+            {
+                item._data.state = ax::State::NOW;
+                return true;
+            }
+            return false;
+        });
+
+        // Save the current context and yield
+        yield(duration);
+        msg = _data.message;
+        _data.waitingOn = nullptr; // Clear the waiting reference after resuming
+
+        // After being resumed, return the remaining timeout
+        return _data.timeout;
+    }
+
+    size_t thread_item::notify(ref& reference, message msg, size_t count, timeout duration)
+    {
+       
+        _data.waitingOn = &reference;
+
+        size_t notifiedCount = 0;
+
+        // Notify all threads on NOTIFY state that are waiting on the same referencexe
+        ax::context.iterate<thread_item&>([&reference, &notifiedCount](thread_item& item)->bool
+        {
+            if (item._data.state == ax::State::WAITING && item._data.waitingOn == &reference)
+            {
+                item._data.state = ax::State::NOW;
+                notifiedCount++;
+                return true;
+            }
+            return false;
+        });
+
+        if (notifiedCount > 0 &&  (_data.state = ax::State::NOTIFY, true) && yield(duration) == true) return 0;
+
+        count = (count == 0) ? ax::context.count() : count;
+
+        notifiedCount = 0;
+
+        ax::context.iterate<thread_item&>([&reference, &notifiedCount, &msg](thread_item& item)->bool
+        {
+            if (item._data.state == ax::State::WAITING && item._data.waitingOn == &reference)
+            {
+                item._data.state = ax::State::NOW;
+                item._data.message = msg; // Set the message for the waiting thread
+                notifiedCount++;
+                return true;
+            }
+            return false;
+        }, count);
+        
+        return notifiedCount;
+    }
+
+    // ===============================================
+    //  TIMEOUT CLASS IMPLEMENTATION
+    // ===============================================
+
+    ax::timeout::timeout(ax::time duration)  : _target(0), _forever(false)
+    {
+        reset(duration);
+    }
+ 
+    ax::timeout::timeout() : _target(0), _forever(true)
+    {}
+ 
+    bool ax::timeout::hasExpired() const
+    {
+        if (_forever) return false;
+        return (_target - ax::getTick()) >= 0;
+    }
+
+    void ax::timeout::reset(ax::time duration)
+    {
+        _forever = false;
+        _target = ax::getTick() + duration;
+    }
+
+    ssize_t ax::timeout::getRemainingTime() const
+    {
+        return getRemainingTime(ax::getTick());
+    }
+
+    ssize_t ax::timeout::getRemainingTime(time tm_now) const
+    {
+        if (_forever) return -1;
+        ssize_t remaining = (ssize_t)_target - (ssize_t)(tm_now);
+        return remaining;
+    }
+
+    bool ax::timeout::forever() const
+    {
+        return _forever == true;
+    }
+
+    bool ax::timeout::isForever() const
+    {
+        return _forever == true;
+    }
+
+    bool ax::timeout::operator >(const timeout& other) const
+    {
+       return _target > other._target;
+    }
+    bool ax::timeout::operator <(const timeout& other) const
+    {
+        return _target < other._target;
+    }
+    bool ax::timeout::operator >=(const timeout& other) const
+    {
+        return _target >= other._target;
+    }
+    bool ax::timeout::operator <=(const timeout& other) const
+    {
+        return _target <= other._target;
+    }
+    bool ax::timeout::operator ==(const timeout& other) const
+    {
+        return _target == other._target;
+    }
+    bool ax::timeout::operator !=(const timeout& other) const
+    {
+        return _target != other._target;
+    }
+    ax::timeout::operator bool() const
+    {
+        return !hasExpired();
+    }
+
+    ax::timeout::operator time() const
+    {
+        return _target;
+    }
+
+    ax::timeout::operator ssize_t() const
+    {
+        return static_cast<ssize_t>(getRemainingTime());
+    }
+
+    ax::timeout& ax::timeout::operator =(time target)
+    {
+        reset(target);
+        return *this;
+    }
+
+    bool ax::timeout::operator()() const
+    {
+        return hasExpired();
     }
 }

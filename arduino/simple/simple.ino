@@ -38,8 +38,6 @@ void ax::sleepTicks(ax::time nSleep)
     delay(nSleep);
 }
 
-ax::thread_context myThreadContext;
-
 size_t dumb()
 {
     return 10;
@@ -48,13 +46,13 @@ size_t dumb()
 class MyThreadItem : public ax::thread_item
 {
     public:
-        MyThreadItem(ax::thread_context& parent, size_t stackSize, ax::time nice, size_t counter) : thread_item(parent, stackSize), _counter(counter) { setNice(nice); }
+        MyThreadItem(size_t stackSize, ax::time nice, size_t counter) : thread_item(stackSize), _counter(counter) { setNice(nice); }
 
         void run() override
         {
             while (true)
             {
-                Serial.print(">> Thread item at address: 0x"); Serial.print((uintptr_t)this, HEX); 
+                Serial.print(F(">> Thread item at address: 0x")); Serial.print((uintptr_t)this, HEX); 
                 Serial.print(F(" with counter: ")); Serial.println(_counter++); 
                 // //Serial.print(" Nice: "); Serial.println(getNice()); 
                 // Serial.print(F(" Free memory: ")); Serial.println(freeMemory());
@@ -76,7 +74,7 @@ class MyThreadItem : public ax::thread_item
 class MySecThreadItem : public ax::thread_item
 {
     public:
-        MySecThreadItem(ax::thread_context& parent, size_t stackSize, ax::time nice, size_t counter) : thread_item(parent, stackSize), _counter(counter) { setNice(nice); }
+        MySecThreadItem(size_t stackSize, ax::time nice, size_t counter) : thread_item(stackSize), _counter(counter) { setNice(nice); }
 
 
         void run() override
@@ -94,6 +92,7 @@ class MySecThreadItem : public ax::thread_item
             Serial.print(F("Thread item encountered a stack overflow! of: "));
             Serial.println(String(getUsedStackSize()));
         }
+
     private:
 
         void dump()
@@ -122,21 +121,18 @@ void setup()
     Serial.begin(115200);
     while (!Serial) {} // wait for the serial port on boards with native USB
 
-    DDRD  |= k_d2_bit;              // output (once, in setup)
-    DDRD  |= k_d3_bit;              // output (once, in setup)
-    
     pinMode(pin, OUTPUT);
    
-    MyThreadItem myThreadItem_1(myThreadContext, k_stack_size, 0, 1000);
-    MyThreadItem myThreadItem_2(myThreadContext, k_stack_size, 1000, 2000);
-    MyThreadItem myThreadItem_3(myThreadContext, k_stack_size, 5000, 3000);
+    MyThreadItem myThreadItem_1(k_stack_size, 0, 1000);
+    MyThreadItem myThreadItem_2(k_stack_size, 1000, 2000);
+    MyThreadItem myThreadItem_3(k_stack_size, 5000, 3000);
 
-    MySecThreadItem mySecThreadItem_1(myThreadContext, k_stack_size, 500, 5000);
-    MySecThreadItem mySecThreadItem_2(myThreadContext, k_stack_size, 1000, 6000);
-    MySecThreadItem mySecThreadItem_3(myThreadContext, k_stack_size, 5000, 7000);
+    MySecThreadItem mySecThreadItem_1(k_stack_size, 500, 5000);
+    MySecThreadItem mySecThreadItem_2(k_stack_size, 1000, 6000);
+    MySecThreadItem mySecThreadItem_3(k_stack_size, 5000, 7000);
 
 
-    for(ax::auto_obj_list::item* current = myThreadContext.getHeadItem(); current; current = current->getNextItem(current))
+    for(ax::auto_obj_list::item* current = ax::context.getHeadItem(); current; current = current->getNextItem(current))
     {
         Serial.print(F("Thread item at address: 0x"));
         Serial.println((uintptr_t)current, HEX);
@@ -151,7 +147,7 @@ void setup()
     Serial.println(F("Starting thread context..."));
     Serial.println(F("------------------------------"));
 
-    myThreadContext.start();
+    ax::context.start();
 
     Serial.println(F("Main thread finished."));
 }

@@ -55,7 +55,7 @@ namespace ax {
 
 #ifdef ARDUINO
     // avr-libc has no ssize_t (POSIX); in ax, so it never clashes with one the core or a library defines
-    using ssize_t = ptrdiff_t;
+    using ssize_t = int32_t;
 #endif
 
     // Those functions MUST be 
@@ -63,14 +63,61 @@ namespace ax {
     time getTick();
     void sleepTicks(time nsleep);
 
-    enum class State
+    enum class State : uint8_t
     {
-        READY,
+
+        READY = 0,
         NOW,
         RUNNING,
         SLEEPING,
         WAITING,
+        NOTIFY,
         TERMINATED
+    };
+
+    class timeout
+    {
+        public:
+            timeout();
+            timeout(time duration);
+            bool hasExpired() const;
+            bool forever() const;
+            bool isForever() const;
+            void reset(time duration);
+            ssize_t getRemainingTime() const;
+            ssize_t getRemainingTime(time tm_now) const;
+
+            bool operator >(const timeout& other) const;
+  
+            bool operator <(const timeout& other) const;
+  
+            bool operator >=(const timeout& other) const;
+
+            bool operator <=(const timeout& other) const;
+
+            bool operator ==(const timeout& other) const;
+
+            bool operator !=(const timeout& other) const;
+
+            bool operator()() const;
+            
+            explicit operator bool() const;
+
+            explicit operator time() const;
+
+            explicit operator ssize_t() const;
+
+            timeout& operator =(time target);
+
+        private:
+            time _target;
+            bool _forever;
+    };
+
+    struct message
+    {
+        size_t attribute;
+        size_t value;
     };
 
     class auto_obj_list
@@ -133,7 +180,28 @@ namespace ax {
                 }
             }
 
-            
+            template <typename tp, typename func>
+            size_t iterate(func cb) volatile
+            {
+                size_t iteratedCount = 0;
+                for (item* current = head; current; current = current->next)
+                {
+                    if (cb(static_cast<tp>(*current))) iteratedCount++;
+                }
+                return iteratedCount;
+            }
+ 
+            template <typename tp, typename func>
+            bool iterate(func cb, size_t count) volatile
+            {
+                bool ret = false;
+                for (item* current = head; current && count--; current = current->next)
+                {
+                    if (cb(static_cast<tp>(*current))) { ret = true; }
+                }
+                return ret;
+            }
+
         protected:
             bool add(item* newItem) volatile;
 
@@ -153,13 +221,17 @@ namespace ax {
         public:
             struct st_data
             {
-                time tm_now = 0;
                 time lastRunTime = 0;
+                timeout timeout = 0;
                 time nice = 1;
                 State state = State::READY;
+
+                ref* waitingOn = nullptr;
+                const char* name = "<unnamed>";
+                message message {};
             };
 
-            thread_item(thread_context& parent, size_t stack_size);
+            thread_item(size_t stack_size);
 
             ~thread_item();
 
@@ -170,11 +242,19 @@ namespace ax {
 
             void dump_threads() volatile;
 
+            const char* getName() const;
+
         protected:
             ssize_t getUsedStackSize() const;
             void setNice(ax::time nice);
             ax::time getNice() const;
-            void yield();
+            timeout yield(timeout duration = 0);
+
+            timeout wait(ref& reference, message& msg, timeout duration = timeout());
+            size_t notify(ref& reference, message msg, size_t count=0, timeout duration = timeout());
+            void setName(const char* name);
+
+            size_t usedStackSize = 0;
 
         private:
             friend class thread_context;
@@ -184,10 +264,7 @@ namespace ax {
             jmp_buf _register_context = {};
 
             volatile size_t _stackSize = 0;
-            volatile st_data _data;
-
-            thread_context& _context;
-
+            st_data _data;
     };
 
     class thread_context : public auto_obj_list
@@ -204,6 +281,8 @@ namespace ax {
 
             void restore (volatile size_t* stackTop, volatile size_t* vStackPointer, size_t stackSize) volatile;
 
+            void resume(thread_item& next, volatile char* caller_marker);
+
             thread_item* _current = nullptr;
             jmp_buf _top_context = {};
             volatile char* _stk_top = nullptr;
@@ -212,6 +291,7 @@ namespace ax {
             bool running = false;
     };
 
+    extern thread_context context;
 
 } // namespace ax   
 
