@@ -17,6 +17,7 @@ make nanoemu_headless SECS=3  # no UI: 3 simulated seconds, serial output to std
 make nanoemu_serial           # no UI, real time: serial on stdout, what you type goes to the sketch; Ctrl-C stops
 make nanoemu SKETCH=other     # use arduino/other instead of arduino/simple
 make nanoemu BREAK=simple.ino:56   # stop at a line (or a function, or 0xADDR)
+make nanoemu NANOEMU_OPTS="--ram 8K"   # test with 8 KB of RAM instead of 2 KB (the MEMORY panel shows use live)
 ```
 
 The emulator runs the `.elf`, so it shows the source line being executed, the current function and the values of the globals used on that line.

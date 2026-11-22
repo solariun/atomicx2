@@ -134,6 +134,8 @@ NANOEMU     = $(NANOEMU_DIR)/nanoemu
 SECS        ?= 5
 # BREAK=where: breakpoint(s) for nanoemu: function | file:line | 0xADDR, e.g. BREAK=simple.ino:56
 NANOEMU_ARGS = $(foreach b,$(BREAK),-b $(b))
+# NANOEMU_OPTS: other nanoemu options, e.g. NANOEMU_OPTS="--ram 8K" to test with more RAM (or --flash 64K)
+NANOEMU_ARGS += $(NANOEMU_OPTS)
 
 # Compile the sketch with arduino-cli into arduino/bin (.hex, .bin, .elf, .eep, with_bootloader.*)
 nano_bin:
