@@ -77,7 +77,8 @@ help:
 	@echo "  make nano                 - Compile and upload code to Arduino Nano using serial use SOURCE=/dev/ttyUSB#"
 	@echo "  make bootloader_nano      - Burn bootloader to Arduino Nano"
 	@echo "  make nano_bin             - Compile arduino/$(SKETCH) for the Nano into arduino/bin (.hex .bin .elf)"
-	@echo "  make nanoemu              - Compile and run it in the nanoemu emulator (TUI)"
+	@echo "  make nanoemu              - Compile and run it in the nanoemu emulator (TUI, with debug symbols)"
+	@echo "  make nanoemu BREAK=simple.ino:56 - The same, stopping at a breakpoint (function | file:line | 0xADDR)"
 	@echo "  make nanoemu_headless     - The same without UI: run SECS=$(SECS) simulated seconds, serial to stdout"
 	@echo "  make nodemcu              - Compile and upload code to NodeMCU ESP8266"
 	@echo "  make depend               - Generate dependencies using makedepend"
@@ -126,9 +127,12 @@ bootloader_nano:
 SKETCH      ?= simple
 NANO_BIN    = arduino/bin
 NANO_HEX    = $(NANO_BIN)/$(SKETCH).ino.hex
+NANO_ELF    = $(NANO_BIN)/$(SKETCH).ino.elf
 NANOEMU_DIR = nanoemu
 NANOEMU     = $(NANOEMU_DIR)/nanoemu
 SECS        ?= 5
+# BREAK=where: breakpoint(s) for nanoemu: function | file:line | 0xADDR, e.g. BREAK=simple.ino:56
+NANOEMU_ARGS = $(foreach b,$(BREAK),-b $(b))
 
 # Compile the sketch with arduino-cli into arduino/bin (.hex, .bin, .elf, .eep, with_bootloader.*)
 nano_bin:
@@ -142,16 +146,19 @@ nano_bin:
 	else echo "note: avr-objcopy not runnable, skipping $(SKETCH).ino.bin (the .hex works too)"; fi
 	@ls -1 $(NANO_BIN)
 
-# Build the emulator from the submodule (fetches it on first use)
-$(NANOEMU):
-	@[ -f $(NANOEMU_DIR)/nanoemu.cpp ] || git submodule update --init $(NANOEMU_DIR)
+# Build the emulator from the submodule (fetches it on first use, rebuilds when its source changes)
+$(NANOEMU_DIR)/nanoemu.cpp:
+	git submodule update --init $(NANOEMU_DIR)
+
+$(NANOEMU): $(NANOEMU_DIR)/nanoemu.cpp
 	$(MAKE) -C $(NANOEMU_DIR)
 
+# runs the .elf: same code as the .hex plus debug symbols (source view, function names, variables)
 nanoemu: nano_bin $(NANOEMU)
-	./$(NANOEMU) $(NANO_HEX)
+	./$(NANOEMU) $(NANOEMU_ARGS) $(NANO_ELF)
 
 nanoemu_headless: nano_bin $(NANOEMU)
-	./$(NANOEMU) -H $(SECS) $(NANO_HEX)
+	./$(NANOEMU) $(NANOEMU_ARGS) -H $(SECS) $(NANO_ELF)
 
 .PHONY: nano_bin nanoemu nanoemu_headless
 
