@@ -14,6 +14,7 @@ arduino-cli compile --upload  --fqbn arduino:avr:nano --programmer usbasp simple
 make nano_bin                 # compile arduino/simple with arduino-cli into arduino/bin (.hex .bin .elf)
 make nanoemu                  # compile and run it in the emulator's TUI
 make nanoemu_headless SECS=3  # no UI: 3 simulated seconds, serial output to stdout
+make nanoemu_serial           # no UI, real time: serial on stdout, what you type goes to the sketch; Ctrl-C stops
 make nanoemu SKETCH=other     # use arduino/other instead of arduino/simple
 make nanoemu BREAK=simple.ino:56   # stop at a line (or a function, or 0xADDR)
 ```

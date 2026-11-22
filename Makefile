@@ -80,6 +80,7 @@ help:
 	@echo "  make nanoemu              - Compile and run it in the nanoemu emulator (TUI, with debug symbols)"
 	@echo "  make nanoemu BREAK=simple.ino:56 - The same, stopping at a breakpoint (function | file:line | 0xADDR)"
 	@echo "  make nanoemu_headless     - The same without UI: run SECS=$(SECS) simulated seconds, serial to stdout"
+	@echo "  make nanoemu_serial       - Run it in real time with no UI: serial on stdout, typing goes to the sketch (Ctrl-C stops)"
 	@echo "  make nodemcu              - Compile and upload code to NodeMCU ESP8266"
 	@echo "  make depend               - Generate dependencies using makedepend"
 	@echo "  make document             - Generate documentation using Doxygen"
@@ -160,7 +161,11 @@ nanoemu: nano_bin $(NANOEMU)
 nanoemu_headless: nano_bin $(NANOEMU)
 	./$(NANOEMU) $(NANOEMU_ARGS) -H $(SECS) $(NANO_ELF)
 
-.PHONY: nano_bin nanoemu nanoemu_headless
+# no TUI, real time: serial output on stdout, typed lines go to the sketch; Ctrl-C stops
+nanoemu_serial: nano_bin $(NANOEMU)
+	./$(NANOEMU) $(NANOEMU_ARGS) --serial $(NANO_ELF)
+
+.PHONY: nano_bin nanoemu nanoemu_headless nanoemu_serial
 
 # Target to compile and upload code to NodeMCU ESP8266
 nodemcu:
