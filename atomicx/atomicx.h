@@ -222,13 +222,13 @@ namespace ax {
             struct st_data
             {
                 time lastRunTime = 0;
-                timeout timeout = 0;
+                ax::timeout timeout = 0;
                 time nice = 1;
                 State state = State::READY;
 
                 ref* waitingOn = nullptr;
                 const char* name = "<unnamed>";
-                message message {};
+                ax::message message {};
             };
 
             thread_item(size_t stack_size);
