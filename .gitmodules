@@ -1,0 +1,3 @@
+[submodule "nanoemu"]
+	path = nanoemu
+	url = https://github.com/solariun/nanoemu.git

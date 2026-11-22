@@ -76,6 +76,9 @@ help:
 	@echo "  make nano_flash           - Compile and upload code to Arduino Nano"
 	@echo "  make nano                 - Compile and upload code to Arduino Nano using serial use SOURCE=/dev/ttyUSB#"
 	@echo "  make bootloader_nano      - Burn bootloader to Arduino Nano"
+	@echo "  make nano_bin             - Compile arduino/$(SKETCH) for the Nano into arduino/bin (.hex .bin .elf)"
+	@echo "  make nanoemu              - Compile and run it in the nanoemu emulator (TUI)"
+	@echo "  make nanoemu_headless     - The same without UI: run SECS=$(SECS) simulated seconds, serial to stdout"
 	@echo "  make nodemcu              - Compile and upload code to NodeMCU ESP8266"
 	@echo "  make depend               - Generate dependencies using makedepend"
 	@echo "  make document             - Generate documentation using Doxygen"
@@ -118,6 +121,39 @@ nano:
 
 bootloader_nano:
 	arduino-cli burn-bootloader -b arduino:avr:nano -P usbasp
+
+# ---- nanoemu: Arduino Nano emulator (submodule ./nanoemu) ----
+SKETCH      ?= simple
+NANO_BIN    = arduino/bin
+NANO_HEX    = $(NANO_BIN)/$(SKETCH).ino.hex
+NANOEMU_DIR = nanoemu
+NANOEMU     = $(NANOEMU_DIR)/nanoemu
+SECS        ?= 5
+
+# Compile the sketch with arduino-cli into arduino/bin (.hex, .bin, .elf, .eep, with_bootloader.*)
+nano_bin:
+	@mkdir -p $(NANO_BIN)
+	arduino-cli compile --fqbn arduino:avr:nano --output-dir $(NANO_BIN) arduino/$(SKETCH)
+	@# arduino-cli only emits a .bin with the bootloader; make the plain flash image with its avr-objcopy
+	@objcopy="$$(arduino-cli compile --fqbn arduino:avr:nano --show-properties arduino/$(SKETCH) 2>/dev/null \
+		| sed -n 's/^compiler.path=//p')avr-objcopy"; \
+	if "$$objcopy" --version >/dev/null 2>&1; then \
+		"$$objcopy" -I ihex -O binary $(NANO_HEX) $(NANO_BIN)/$(SKETCH).ino.bin; \
+	else echo "note: avr-objcopy not runnable, skipping $(SKETCH).ino.bin (the .hex works too)"; fi
+	@ls -1 $(NANO_BIN)
+
+# Build the emulator from the submodule (fetches it on first use)
+$(NANOEMU):
+	@[ -f $(NANOEMU_DIR)/nanoemu.cpp ] || git submodule update --init $(NANOEMU_DIR)
+	$(MAKE) -C $(NANOEMU_DIR)
+
+nanoemu: nano_bin $(NANOEMU)
+	./$(NANOEMU) $(NANO_HEX)
+
+nanoemu_headless: nano_bin $(NANOEMU)
+	./$(NANOEMU) -H $(SECS) $(NANO_HEX)
+
+.PHONY: nano_bin nanoemu nanoemu_headless
 
 # Target to compile and upload code to NodeMCU ESP8266
 nodemcu:
