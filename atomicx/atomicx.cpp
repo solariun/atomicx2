@@ -510,7 +510,12 @@ namespace ax {
 
     // Puts next's slice back and jumps into it. Called from a frame inside that slice, it first calls itself
     // until its own frame is below the slice, so the copy never overwrites a frame still in use. Each call
-    // passes its marker down, so the compiler cannot turn the recursion into a loop
+    // passes its marker down, so the compiler cannot turn the recursion into a loop.
+    // Every path ends in longjmp, so GCC >= 12 reports -Winfinite-recursion; the recursion is intended
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 12
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winfinite-recursion"
+#endif
     void thread_context::resume(thread_item& next, volatile char* caller_marker)
     {
         volatile char marker = 0;
@@ -522,6 +527,9 @@ namespace ax {
         restore((volatile size_t*) _stk_top, (volatile size_t*) next._v_stackPointer, _stk_top - next._stk_bottom);
         longjmp(next._register_context, 1);
     }
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 12
+#pragma GCC diagnostic pop
+#endif
 
     void thread_context::save (volatile size_t* stackTop, volatile size_t* stackPointer, size_t stackSize) volatile
     {
@@ -619,7 +627,8 @@ namespace ax {
     bool ax::timeout::hasExpired() const
     {
         if (_forever) return false;
-        return (_target - ax::getTick()) >= 0;
+        // expired once now >= target; the signed difference keeps it right across the tick wrap (P45)
+        return (int32_t)(ax::getTick() - _target) >= 0;
     }
 
     void ax::timeout::reset(ax::time duration)
